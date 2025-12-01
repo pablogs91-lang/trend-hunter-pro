@@ -40,7 +40,7 @@ except ImportError:
 # ================================
 
 st.set_page_config(
-    page_title="Trend Hunter Pro",
+    page_title="Abra",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -3608,12 +3608,9 @@ def render_empty_state(icon, title, message, suggestions=None):
     
     Returns:
         str: HTML del empty state
-    """
-    # Escapar contenido user-provided
-    safe_icon = html.escape(str(icon))
-    safe_title = html.escape(str(title))
-    safe_message = html.escape(str(message))
     
+    Note: No se escapa HTML porque todo el contenido es controlado por la app
+    """
     html_content = f"""
     <div class="animate-fadeIn" style="
         text-align: center;
@@ -3624,7 +3621,7 @@ def render_empty_state(icon, title, message, suggestions=None):
         margin: 2rem 0;
     ">
         <div style="font-size: 4rem; margin-bottom: 1.5rem; animation: pulse 2s ease-in-out infinite;">
-            {safe_icon}
+            {icon}
         </div>
         <h3 style="
             color: var(--text-primary);
@@ -3632,7 +3629,7 @@ def render_empty_state(icon, title, message, suggestions=None):
             font-size: 1.5rem;
             font-weight: 600;
         ">
-            {safe_title}
+            {title}
         </h3>
         <p style="
             color: var(--text-secondary);
@@ -3643,7 +3640,7 @@ def render_empty_state(icon, title, message, suggestions=None):
             margin-left: auto;
             margin-right: auto;
         ">
-            {safe_message}
+            {message}
         </p>
     """
     
@@ -3669,7 +3666,6 @@ def render_empty_state(icon, title, message, suggestions=None):
         """
         
         for suggestion in suggestions:
-            safe_suggestion = html.escape(str(suggestion))
             html_content += f"""
             <span style="
                 display: inline-block;
@@ -3687,7 +3683,7 @@ def render_empty_state(icon, title, message, suggestions=None):
                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'"
                onfocus="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
                onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'">
-                {safe_suggestion}
+                {suggestion}
             </span>
             """
         
@@ -4927,7 +4923,7 @@ def export_to_pdf(data, brand_name, country_name):
     )
     
     footer = Paragraph(
-        f"Generado por Trend Hunter Pro | {datetime.now().strftime('%d/%m/%Y %H:%M')}<br/>"
+        f"Generado por Abra | {datetime.now().strftime('%d/%m/%Y %H:%M')}<br/>"
         "Powered by Google Trends API",
         footer_style
     )
@@ -5118,7 +5114,7 @@ def display_queries_filtered(queries_data, categories, threshold, query_type="al
 
 st.markdown("""
 <div class="main-header">
-    <h1>🔍 Trend Hunter Pro</h1>
+    <h1>🔍 Abra</h1>
     <p>Inteligencia Competitiva con Análisis Completo de Google Trends</p>
 </div>
 """, unsafe_allow_html=True)
@@ -6076,7 +6072,7 @@ if search_mode == "🔍 Manual":
         if not search_query or not search_button:
             st.markdown(render_empty_state(
                 icon="🚀",
-                title="Bienvenido a Trend Hunter Pro",
+                title="Bienvenido a Abra",
                 message="Introduce el nombre de una marca tecnológica para comenzar el análisis de tendencias de búsqueda. Descubre insights de múltiples países simultáneamente.",
                 suggestions=["logitech", "razer", "corsair", "keychron", "arozzi", "steelseries"]
             ), unsafe_allow_html=True)
