@@ -7,10 +7,12 @@ import re
 from urllib.parse import urlparse
 import io
 import json
+import os  # BUGFIX: Para variables de entorno
 from base64 import b64encode
 import random  # FIX: Para sparklines simulados
 import math
 import numpy as np
+import html  # FIX: Para escapar HTML y evitar XSS
 
 # PDF generation
 try:
@@ -43,6 +45,26 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ================================
+# BUGFIX: SESSION STATE INITIALIZATION
+# ================================
+
+# Inicializar session state para persistencia
+if 'selected_channel' not in st.session_state:
+    st.session_state.selected_channel = 'web'
+
+if 'selected_channel_comp' not in st.session_state:
+    st.session_state.selected_channel_comp = 'web'
+
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ''
+
+if 'last_analysis' not in st.session_state:
+    st.session_state.last_analysis = None
+
+if 'cache_results' not in st.session_state:
+    st.session_state.cache_results = {}
 
 # CSS CUSTOM - LIGHT MODE
 st.markdown("""
@@ -852,7 +874,21 @@ st.markdown("""
 # CONFIGURACIÓN
 # ================================
 
-SERPAPI_KEY = "282b59f5ce2f8b2b7ddff4fea0c6c5b9bbb35b832ab1db3800be405fa5719094"
+# ================================
+# API CONFIGURATION - SECURITY FIX
+# ================================
+
+# CRÍTICO: API Key desde Streamlit Secrets (seguro)
+try:
+    SERPAPI_KEY = st.secrets["SERPAPI_KEY"]
+except:
+    # Fallback a variable de entorno
+    SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+    
+    # Si tampoco está en env, mostrar error
+    if not SERPAPI_KEY:
+        st.error("❌ SERPAPI_KEY no configurada. Por favor configura en `.streamlit/secrets.toml`")
+        st.stop()
 
 COUNTRIES = {
     "ES": {"name": "España", "flag": "🇪🇸"},
@@ -860,6 +896,40 @@ COUNTRIES = {
     "FR": {"name": "Francia", "flag": "🇫🇷"},
     "IT": {"name": "Italia", "flag": "🇮🇹"},
     "DE": {"name": "Alemania", "flag": "🇩🇪"}
+}
+
+# SPRINT 5: Multi-canal
+CHANNELS = {
+    "web": {
+        "name": "Web Search", 
+        "icon": "🌐",
+        "gprop": "",  # Empty = web search (default)
+        "description": "Búsquedas generales en Google"
+    },
+    "images": {
+        "name": "Google Images",
+        "icon": "🖼️", 
+        "gprop": "images",
+        "description": "Búsquedas de imágenes"
+    },
+    "news": {
+        "name": "Google News",
+        "icon": "📰",
+        "gprop": "news", 
+        "description": "Búsquedas en noticias"
+    },
+    "youtube": {
+        "name": "YouTube",
+        "icon": "🎥",
+        "gprop": "youtube",
+        "description": "Búsquedas en YouTube"
+    },
+    "shopping": {
+        "name": "Google Shopping",
+        "icon": "🛍️",
+        "gprop": "froogle",  # froogle = Google Shopping
+        "description": "Búsquedas de productos"
+    }
 }
 
 PRODUCT_CATEGORIES = {
@@ -924,7 +994,15 @@ PRODUCT_CATEGORIES = {
 # FUNCIONES API
 # ================================
 
-def get_interest_over_time(brand, geo="ES"):
+# BUGFIX: Cache para optimizar llamadas API
+@st.cache_data(ttl=3600, show_spinner=False)  # Cache 1 hora
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_interest_over_time(brand, geo="ES", gprop=""):
+    """
+    SPRINT 5: Añadido soporte multi-canal con parámetro gprop.
+    BUGFIX: Añadido cache para optimizar performance.
+    gprop: "" (web), "images", "news", "youtube", "froogle" (shopping)
+    """
     url = "https://serpapi.com/search.json"
     params = {
         "engine": "google_trends",
@@ -934,14 +1012,23 @@ def get_interest_over_time(brand, geo="ES"):
         "geo": geo,
         "api_key": SERPAPI_KEY
     }
+    
+    # SPRINT 5: Añadir gprop si no es web search (default)
+    if gprop:
+        params["gprop"] = gprop
+    
     try:
         response = requests.get(url, params=params, timeout=30)
         return response.json() if response.status_code == 200 else None
     except:
         return None
 
-def get_related_queries(brand, geo="ES"):
-    """Obtiene búsquedas relacionadas (TOP + RISING)"""
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_related_queries(brand, geo="ES", gprop=""):
+    """
+    Obtiene búsquedas relacionadas (TOP + RISING)
+    SPRINT 5: Añadido gprop para multi-canal
+    """
     url = "https://serpapi.com/search.json"
     params = {
         "engine": "google_trends",
@@ -950,14 +1037,23 @@ def get_related_queries(brand, geo="ES"):
         "geo": geo,
         "api_key": SERPAPI_KEY
     }
+    
+    # SPRINT 5: Añadir gprop
+    if gprop:
+        params["gprop"] = gprop
+    
     try:
         response = requests.get(url, params=params, timeout=30)
         return response.json() if response.status_code == 200 else None
     except:
         return None
 
-def get_related_topics(brand, geo="ES"):
-    """Obtiene temas relacionados (TOP + RISING)"""
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_related_topics(brand, geo="ES", gprop=""):
+    """
+    Obtiene temas relacionados (TOP + RISING)
+    SPRINT 5: Añadido gprop para multi-canal
+    """
     url = "https://serpapi.com/search.json"
     params = {
         "engine": "google_trends",
@@ -966,11 +1062,575 @@ def get_related_topics(brand, geo="ES"):
         "geo": geo,
         "api_key": SERPAPI_KEY
     }
+    
+    # SPRINT 5: Añadir gprop
+    if gprop:
+        params["gprop"] = gprop
+    
     try:
         response = requests.get(url, params=params, timeout=30)
         return response.json() if response.status_code == 200 else None
     except:
         return None
+
+# ================================
+# SPRINT 6: NUEVAS APIs
+# ================================
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_interest_by_region(brand, geo="ES", gprop=""):
+    """
+    API: Interest by Region (GEO_MAP_0)
+    Obtiene el interés por región/provincia para una marca.
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_trends",
+        "q": brand,
+        "data_type": "GEO_MAP_0",
+        "geo": geo,
+        "api_key": SERPAPI_KEY
+    }
+    
+    if gprop:
+        params["gprop"] = gprop
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_compared_breakdown(brands_list, geo="ES", gprop=""):
+    """
+    API: Compared Breakdown by Region (GEO_MAP)
+    Compara múltiples marcas por región.
+    """
+    url = "https://serpapi.com/search.json"
+    
+    # Unir marcas con coma
+    q_param = ",".join(brands_list)
+    
+    params = {
+        "engine": "google_trends",
+        "q": q_param,
+        "data_type": "GEO_MAP",
+        "geo": geo,
+        "api_key": SERPAPI_KEY
+    }
+    
+    if gprop:
+        params["gprop"] = gprop
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+@st.cache_data(ttl=1800, show_spinner=False)  # Cache 30 min (más fresco)
+def get_related_news(brand):
+    """
+    API: News API
+    Obtiene noticias relacionadas con la marca.
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_trends_news",
+        "q": brand,
+        "api_key": SERPAPI_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+@st.cache_data(ttl=600, show_spinner=False)  # Cache 10 min (muy fresco)
+def get_trending_now(geo="ES", hours=4, category_id=0):
+    """
+    API: Trending Now
+    Obtiene tendencias del momento.
+    
+    Args:
+        geo: País (ES, PT, etc)
+        hours: Rango temporal (1, 4, 24)
+        category_id: Categoría (0=todas)
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_trends_trending_now",
+        "geo": geo,
+        "hours": hours,
+        "api_key": SERPAPI_KEY
+    }
+    
+    if category_id:
+        params["category_id"] = category_id
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_autocomplete(query):
+    """
+    API: Autocomplete
+    Obtiene sugerencias de autocompletado.
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_trends_autocomplete",
+        "q": query,
+        "api_key": SERPAPI_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+# ================================
+# AMAZON APIs INTEGRATION
+# ================================
+
+@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600)  # Cache 1 hora
+def get_amazon_products(brand, country="es"):
+    """
+    API: Amazon Organic Results via SerpAPI
+    Obtiene productos de Amazon para una marca.
+    
+    Args:
+        brand: Nombre de la marca
+        country: es, pt, fr, it, de
+        
+    Returns:
+        dict: Datos de productos Amazon o None
+    """
+    url = "https://serpapi.com/search.json"
+    
+    # Mapeo de países a dominios Amazon
+    amazon_domains = {
+        "ES": "amazon.es",
+        "PT": "amazon.es",  # Portugal usa .es
+        "FR": "amazon.fr",
+        "IT": "amazon.it",
+        "DE": "amazon.de"
+    }
+    
+    params = {
+        "engine": "amazon",
+        "amazon_domain": amazon_domains.get(country.upper(), "amazon.es"),
+        "q": brand,
+        "api_key": SERPAPI_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        return None
+
+def analyze_amazon_data(amazon_data, brand):
+    """
+    Analiza datos de Amazon para extraer insights.
+    
+    Returns:
+        dict: {
+            'total_products': int,
+            'avg_rating': float,
+            'total_reviews': int,
+            'price_range': (min, max),
+            'prime_percentage': float,
+            'top_products': list
+        }
+    """
+    if not amazon_data or 'organic_results' not in amazon_data:
+        return None
+    
+    products = amazon_data['organic_results']
+    
+    if not products:
+        return None
+    
+    # Métricas
+    total_products = len(products)
+    ratings = []
+    reviews = []
+    prices = []
+    prime_count = 0
+    
+    for product in products:
+        # Rating
+        if 'rating' in product:
+            try:
+                ratings.append(float(product['rating']))
+            except:
+                pass
+        
+        # Reviews
+        if 'reviews_count' in product:
+            try:
+                reviews.append(int(product['reviews_count']))
+            except:
+                pass
+        
+        # Price
+        if 'price' in product and product['price']:
+            try:
+                price_str = product['price'].replace('€', '').replace(',', '.').strip()
+                prices.append(float(price_str))
+            except:
+                pass
+        
+        # Prime
+        if product.get('is_prime', False):
+            prime_count += 1
+    
+    # Calcular promedios
+    avg_rating = sum(ratings) / len(ratings) if ratings else 0
+    total_reviews_count = sum(reviews) if reviews else 0
+    price_range = (min(prices), max(prices)) if prices else (0, 0)
+    prime_percentage = (prime_count / total_products * 100) if total_products > 0 else 0
+    
+    # Top 5 productos por reviews
+    products_with_reviews = [p for p in products if 'reviews_count' in p]
+    top_products = sorted(
+        products_with_reviews,
+        key=lambda x: int(x.get('reviews_count', 0)),
+        reverse=True
+    )[:5]
+    
+    return {
+        'total_products': total_products,
+        'avg_rating': avg_rating,
+        'total_reviews': total_reviews_count,
+        'price_range': price_range,
+        'prime_percentage': prime_percentage,
+        'top_products': top_products,
+        'related_searches': amazon_data.get('related_searches', [])
+    }
+
+def compare_trends_amazon(trends_change, amazon_products_count, historical_count=None):
+    """
+    Compara tendencias Google con disponibilidad Amazon.
+    
+    Returns:
+        dict: {
+            'status': 'aligned' | 'opportunity' | 'warning',
+            'message': str,
+            'recommendation': str
+        }
+    """
+    # Si no hay histórico, usar heurística simple
+    if historical_count is None:
+        if trends_change > 30 and amazon_products_count > 20:
+            return {
+                'status': 'aligned',
+                'icon': '✅',
+                'message': f'Tendencia alcista (+{trends_change:.0f}%) respaldada por amplia oferta ({amazon_products_count} productos)',
+                'recommendation': 'Aumentar stock - Alta demanda con buena disponibilidad'
+            }
+        elif trends_change > 30 and amazon_products_count < 10:
+            return {
+                'status': 'opportunity',
+                'icon': '🎯',
+                'message': f'Alta demanda (+{trends_change:.0f}%) pero poca oferta ({amazon_products_count} productos)',
+                'recommendation': 'OPORTUNIDAD: Baja competencia Amazon - Aumentar catálogo'
+            }
+        elif trends_change < -20:
+            return {
+                'status': 'warning',
+                'icon': '⚠️',
+                'message': f'Demanda bajando ({trends_change:.0f}%) con {amazon_products_count} productos',
+                'recommendation': 'Reducir stock - Tendencia descendente'
+            }
+        else:
+            return {
+                'status': 'neutral',
+                'icon': 'ℹ️',
+                'message': f'Tendencia estable con {amazon_products_count} productos disponibles',
+                'recommendation': 'Mantener estrategia actual'
+            }
+    else:
+        # Con histórico
+        product_change = ((amazon_products_count - historical_count) / historical_count * 100) if historical_count > 0 else 0
+        
+        if trends_change > 20 and product_change > 15:
+            return {
+                'status': 'aligned',
+                'icon': '✅',
+                'message': f'Demanda +{trends_change:.0f}% y oferta +{product_change:.0f}% - Mercado creciendo',
+                'recommendation': 'Aumentar stock agresivamente'
+            }
+        elif trends_change > 20 and product_change < 5:
+            return {
+                'status': 'opportunity',
+                'icon': '🎯',
+                'message': f'Demanda +{trends_change:.0f}% pero oferta estancada (+{product_change:.0f}%)',
+                'recommendation': 'OPORTUNIDAD: Aumentar antes que competencia'
+            }
+        else:
+            return {
+                'status': 'neutral',
+                'icon': 'ℹ️',
+                'message': f'Demanda {trends_change:+.0f}%, Oferta {product_change:+.0f}%',
+                'recommendation': 'Monitorear evolución'
+            }
+
+# ================================
+# YOUTUBE TRENDING INTELLIGENCE
+# ================================
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_youtube_videos(query, country="ES", max_results=50):
+    """
+    Obtiene videos de YouTube para análisis de tendencias.
+    
+    Args:
+        query: Búsqueda (marca o producto específico)
+        country: ES, PT, FR, IT, DE
+        max_results: Cantidad de resultados
+    """
+    url = "https://serpapi.com/search.json"
+    
+    params = {
+        "engine": "youtube",
+        "search_query": query,
+        "gl": country.lower(),
+        "api_key": SERPAPI_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        return response.json() if response.status_code == 200 else None
+    except:
+        return None
+
+def parse_youtube_date(date_str):
+    """
+    Parsea fechas de YouTube a días.
+    """
+    import re
+    
+    if not date_str:
+        return 999
+    
+    date_str = date_str.lower()
+    
+    if 'hour' in date_str or 'hora' in date_str:
+        return 0
+    
+    if 'day' in date_str or 'día' in date_str:
+        match = re.search(r'(\d+)', date_str)
+        if match:
+            return int(match.group(1))
+        return 1
+    
+    if 'week' in date_str or 'semana' in date_str:
+        match = re.search(r'(\d+)', date_str)
+        if match:
+            return int(match.group(1)) * 7
+        return 7
+    
+    if 'month' in date_str or 'mes' in date_str:
+        match = re.search(r'(\d+)', date_str)
+        if match:
+            return int(match.group(1)) * 30
+        return 30
+    
+    if 'year' in date_str or 'año' in date_str:
+        match = re.search(r'(\d+)', date_str)
+        if match:
+            return int(match.group(1)) * 365
+        return 365
+    
+    if 'streamed' in date_str:
+        return 0
+    
+    return 999
+
+def analyze_youtube_trending(youtube_data, brand):
+    """
+    Analiza tendencias de contenido YouTube.
+    """
+    if not youtube_data or 'video_results' not in youtube_data:
+        return None
+    
+    videos = youtube_data.get('video_results', [])
+    
+    if not videos:
+        return None
+    
+    videos_7d = 0
+    videos_30d = 0
+    videos_90d = 0
+    
+    total_views = 0
+    videos_with_views = 0
+    
+    channels_count = {}
+    all_videos_info = []
+    
+    for video in videos:
+        published = video.get('published_date', '')
+        days_ago = parse_youtube_date(published)
+        
+        if days_ago <= 7:
+            videos_7d += 1
+        if days_ago <= 30:
+            videos_30d += 1
+        if days_ago <= 90:
+            videos_90d += 1
+        
+        views = video.get('views', 0)
+        if views:
+            total_views += views
+            videos_with_views += 1
+        
+        channel_name = video.get('channel', {}).get('name', 'Unknown')
+        channels_count[channel_name] = channels_count.get(channel_name, 0) + 1
+        
+        all_videos_info.append({
+            'title': video.get('title', ''),
+            'link': video.get('link', ''),
+            'channel': channel_name,
+            'channel_verified': video.get('channel', {}).get('verified', False),
+            'views': views,
+            'published_date': published,
+            'days_ago': days_ago,
+            'length': video.get('length', ''),
+            'thumbnail': video.get('thumbnail', {}).get('static', ''),
+            'extensions': video.get('extensions', [])
+        })
+    
+    top_channels = sorted(channels_count.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    top_videos = sorted(
+        [v for v in all_videos_info if v['views'] > 0],
+        key=lambda x: x['views'],
+        reverse=True
+    )[:10]
+    
+    avg_views = total_views / videos_with_views if videos_with_views > 0 else 0
+    
+    related_products = detect_products_in_titles([v['title'] for v in all_videos_info], brand)
+    
+    videos_4k = sum(1 for v in all_videos_info if '4K' in v.get('extensions', []))
+    videos_new = sum(1 for v in all_videos_info if 'New' in v.get('extensions', []))
+    verified_channels = sum(1 for v in all_videos_info if v.get('channel_verified', False))
+    
+    quality_indicators = {
+        '4k_percentage': (videos_4k / len(videos) * 100) if videos else 0,
+        'new_percentage': (videos_new / len(videos) * 100) if videos else 0,
+        'verified_percentage': (verified_channels / len(videos) * 100) if videos else 0
+    }
+    
+    return {
+        'total_videos': len(videos),
+        'by_period': {
+            '7d': videos_7d,
+            '30d': videos_30d,
+            '90d': videos_90d
+        },
+        'top_videos': top_videos,
+        'top_channels': top_channels,
+        'related_products': related_products,
+        'engagement_avg': avg_views,
+        'quality_indicators': quality_indicators,
+        'all_videos': all_videos_info
+    }
+
+def detect_products_in_titles(titles, brand):
+    """
+    Detecta productos específicos mencionados en títulos.
+    SECURITY: Regex optimizado para prevenir ReDoS
+    """
+    import re
+    from collections import defaultdict
+    
+    products = defaultdict(lambda: {'count': 0, 'recent': 0})
+    
+    brand_lower = brand.lower()
+    # SECURITY: Escape special regex characters in brand
+    brand_escaped = re.escape(brand_lower)
+    
+    for title in titles:
+        title_lower = title.lower()
+        
+        if brand_lower not in title_lower:
+            continue
+        
+        # SECURITY: More specific pattern to prevent ReDoS
+        # Limitar a palabras razonables (max 30 chars)
+        pattern1 = rf'{brand_escaped}\s+([\w\s]{{0,30}}(?:pro|master|keys|wireless|gaming)?[\w\s]{{0,20}}?)'
+        try:
+            matches = re.findall(pattern1, title_lower, re.IGNORECASE)
+        except:
+            continue  # Si regex falla, skip
+        
+        for match in matches:
+            product_name = f"{brand_lower} {match.strip()}"
+            product_name = ' '.join(product_name.split()[:4])
+            
+            if len(product_name) > len(brand_lower) + 2:
+                products[product_name]['count'] += 1
+    
+    filtered = {k: v for k, v in products.items() if v['count'] >= 2}
+    sorted_products = dict(sorted(filtered.items(), key=lambda x: x[1]['count'], reverse=True))
+    
+    return sorted_products
+
+def create_youtube_timeline_chart(youtube_analysis):
+    """
+    Gráfico temporal de videos por periodo.
+    """
+    if not youtube_analysis:
+        return None
+    
+    periods = youtube_analysis['by_period']
+    
+    labels = ['Última\nSemana', 'Último\nMes', 'Últimos\n3 Meses']
+    values = [periods['7d'], periods['30d'], periods['90d']]
+    colors = ['#FF6B00', '#FF9500', '#FFBE00']
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            x=labels,
+            y=values,
+            text=[f"{v} videos" for v in values],
+            textposition='auto',
+            marker=dict(
+                color=colors,
+                line=dict(color='white', width=2)
+            ),
+            hovertemplate='<b>%{x}</b><br>%{y} videos<extra></extra>'
+        )
+    ])
+    
+    fig.update_layout(
+        title=dict(
+            text="📊 Evolución Temporal de Contenido",
+            font=dict(size=18, color='#1d1d1f', family='Inter')
+        ),
+        xaxis=dict(title=""),
+        yaxis=dict(title="Videos Publicados"),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Inter'),
+        height=350,
+        margin=dict(l=60, r=40, t=60, b=60)
+    )
+    
+    return fig
 
 def calculate_changes(timeline_data):
     if not timeline_data or 'interest_over_time' not in timeline_data:
@@ -1423,8 +2083,8 @@ def render_query_with_bar(query_text, value, max_value, index, query_type="Query
         value_display = str(int(value))
         numeric_value = f"{value:,}"
     
-    # SPRINT 4: Tooltip mejorado
-    tooltip_text = f"{query_text}\n━━━━━━━━━━━━━━━\nVolumen: {numeric_value}\nTipo: {query_type}\nRelevancia: {relevance}%"
+    # Fix: Use pipe separators instead of newlines in HTML title attribute
+    tooltip_text = f"{query_text} | Volumen: {numeric_value} | Tipo: {query_type} | Relevancia: {relevance}%"
     
     return f"""
     <div class="query-bar-container" title="{tooltip_text}">
@@ -1459,13 +2119,16 @@ def render_seasonality_chart(monthly_data, overall_avg):
         if overall_avg > 0:
             diff_pct = ((value - overall_avg) / overall_avg) * 100
             diff_sign = "+" if diff_pct > 0 else ""
-            status = "📈 Por encima" if diff_pct > 0 else "📉 Por debajo"
+            status = "Por encima" if diff_pct > 0 else "Por debajo"
+            emoji = "📈" if diff_pct > 0 else "📉"
         else:
             diff_pct = 0
             diff_sign = ""
-            status = "➡️ Normal"
+            status = "Normal"
+            emoji = "➡️"
         
-        tooltip = f"{month}\n━━━━━━━━━━\nInterés: {value:.0f}\nPromedio: {overall_avg:.0f}\nDiferencia: {diff_sign}{diff_pct:.1f}%\n{status} del promedio"
+        # Fix: Use HTML entities and spaces instead of newlines in title attribute
+        tooltip = f"{month} - Interés: {value:.0f} | Promedio: {overall_avg:.0f} | Diferencia: {diff_sign}{diff_pct:.1f}% | {emoji} {status} del promedio"
         
         html += f"""
         <div class="seasonality-month">
@@ -1480,25 +2143,31 @@ def render_seasonality_chart(monthly_data, overall_avg):
     html += '</div>'
     return html
 
-def analyze_brand(brand, countries, categories, threshold):
-    """Análisis completo con todas las APIs"""
+def analyze_brand(brand, countries, categories, threshold, channel="web"):
+    """
+    Análisis completo con todas las APIs
+    SPRINT 5: Añadido parámetro channel para multi-canal
+    """
     results = {}
+    gprop = CHANNELS[channel]["gprop"]
     
     for geo in countries:
-        with st.spinner(f'🔎 Analizando {brand} en {COUNTRIES[geo]["name"]}...'):
-            timeline = get_interest_over_time(brand, geo)
+        channel_name = CHANNELS[channel]["name"]
+        with st.spinner(f'🔎 Analizando {brand} en {COUNTRIES[geo]["name"]} ({channel_name})...'):
+            timeline = get_interest_over_time(brand, geo, gprop)
             time.sleep(1)
             
-            queries = get_related_queries(brand, geo)
+            queries = get_related_queries(brand, geo, gprop)
             time.sleep(1)
             
-            topics = get_related_topics(brand, geo)
+            topics = get_related_topics(brand, geo, gprop)
             time.sleep(1)
             
             month_change, quarter_change, year_change, avg_value = calculate_changes(timeline)
             
             results[geo] = {
                 'country': COUNTRIES[geo]['name'],
+                'channel': channel_name,
                 'timeline': timeline,
                 'queries': queries,
                 'topics': topics,
@@ -1509,6 +2178,1067 @@ def analyze_brand(brand, countries, categories, threshold):
             }
     
     return results
+
+# ================================
+# SPRINT 5: COMPARADOR DE MARCAS
+# ================================
+
+def compare_brands(brands, countries, categories, threshold, channel="web"):
+    """
+    Compara múltiples marcas (2-4) simultáneamente.
+    
+    Args:
+        brands (list): Lista de marcas a comparar (2-4)
+        countries (list): Países a analizar
+        categories (list): Categorías de productos
+        threshold (int): Umbral de relevancia
+        channel (str): Canal de búsqueda
+    
+    Returns:
+        dict: Resultados comparativos por marca y país
+    """
+    comparison_results = {}
+    gprop = CHANNELS[channel]["gprop"]
+    
+    for brand in brands:
+        brand_results = {}
+        
+        for geo in countries:
+            channel_name = CHANNELS[channel]["name"]
+            with st.spinner(f'🔎 Analizando {brand} en {COUNTRIES[geo]["name"]} ({channel_name})...'):
+                timeline = get_interest_over_time(brand, geo, gprop)
+                time.sleep(1)
+                
+                queries = get_related_queries(brand, geo, gprop)
+                time.sleep(1)
+                
+                topics = get_related_topics(brand, geo, gprop)
+                time.sleep(1)
+                
+                month_change, quarter_change, year_change, avg_value = calculate_changes(timeline)
+                
+                brand_results[geo] = {
+                    'country': COUNTRIES[geo]['name'],
+                    'channel': channel_name,
+                    'timeline': timeline,
+                    'queries': queries,
+                    'topics': topics,
+                    'month_change': month_change,
+                    'quarter_change': quarter_change,
+                    'year_change': year_change,
+                    'avg_value': avg_value
+                }
+        
+        comparison_results[brand] = brand_results
+    
+    return comparison_results
+
+def create_comparison_chart(comparison_data, country):
+    """
+    Crea gráfico comparativo de múltiples marcas.
+    
+    Args:
+        comparison_data (dict): Datos de comparación {brand: {geo: data}}
+        country (str): País a visualizar
+    
+    Returns:
+        plotly.graph_objects.Figure: Gráfico comparativo
+    """
+    fig = go.Figure()
+    
+    colors = ['#FF6B00', '#007AFF', '#34C759', '#FF3B30', '#5856D6', '#FF9500']
+    
+    for idx, (brand, brand_data) in enumerate(comparison_data.items()):
+        if country in brand_data:
+            data = brand_data[country]
+            
+            if data['timeline'] and 'interest_over_time' in data['timeline']:
+                timeline_data = data['timeline']['interest_over_time'].get('timeline_data', [])
+                
+                if timeline_data:
+                    dates = [item['date'] for item in timeline_data]
+                    values = [item.get('values', [{}])[0].get('value', 0) for item in timeline_data]
+                    
+                    # Color único por marca
+                    color = colors[idx % len(colors)]
+                    
+                    fig.add_trace(go.Scatter(
+                        x=dates,
+                        y=values,
+                        mode='lines',
+                        name=brand,
+                        line=dict(color=color, width=3),
+                        hovertemplate=f'<b>{brand}</b><br>%{{x}}<br>Interés: %{{y}}/100<extra></extra>'
+                    ))
+    
+    fig.update_layout(
+        title=dict(
+            text=f"📊 Comparación Temporal - {COUNTRIES[country]['flag']} {COUNTRIES[country]['name']}",
+            font=dict(size=20, color='#1d1d1f', family='Inter')
+        ),
+        xaxis=dict(
+            title="Fecha",
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)'
+        ),
+        yaxis=dict(
+            title="Interés (0-100)",
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)',
+            range=[0, 100]
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Inter, -apple-system, sans-serif'),
+        height=450,
+        margin=dict(l=60, r=40, t=80, b=60),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor='rgba(0,0,0,0.1)',
+            borderwidth=1
+        )
+    )
+    
+    return fig
+
+def render_comparison_summary(comparison_data, country):
+    """
+    Renderiza tabla resumen comparativa.
+    
+    Args:
+        comparison_data (dict): Datos de comparación
+        country (str): País
+    
+    Returns:
+        pandas.DataFrame: Tabla de comparación
+    """
+    summary = []
+    
+    for brand, brand_data in comparison_data.items():
+        if country in brand_data:
+            data = brand_data[country]
+            
+            summary.append({
+                'Marca': brand,
+                'Promedio 5Y': f"{data['avg_value']:.0f}/100" if data['avg_value'] else "N/A",
+                'Cambio Mes': f"{data['month_change']:+.1f}%" if data['month_change'] is not None else "N/A",
+                'Cambio Trimestre': f"{data['quarter_change']:+.1f}%" if data['quarter_change'] is not None else "N/A",
+                'Cambio Año': f"{data['year_change']:+.1f}%" if data['year_change'] is not None else "N/A"
+            })
+    
+    if summary:
+        return pd.DataFrame(summary)
+    return None
+
+# ================================
+# SPRINT 5: HISTÓRICO DE ANÁLISIS
+# ================================
+
+def save_analysis_to_history(brand, country, channel, results, filename="analysis_history.json"):
+    """
+    Guarda un análisis en el histórico JSON.
+    
+    Args:
+        brand (str): Nombre de la marca
+        country (str): Código del país
+        channel (str): Canal usado
+        results (dict): Resultados del análisis
+        filename (str): Archivo JSON de histórico
+    """
+    import os
+    from datetime import datetime
+    
+    # Estructura del registro
+    record = {
+        "timestamp": datetime.now().isoformat(),
+        "brand": brand,
+        "country": country,
+        "country_name": COUNTRIES[country]["name"],
+        "channel": channel,
+        "channel_name": CHANNELS[channel]["name"],
+        "metrics": {
+            "avg_value": results.get("avg_value"),
+            "month_change": results.get("month_change"),
+            "quarter_change": results.get("quarter_change"),
+            "year_change": results.get("year_change")
+        }
+    }
+    
+    # Cargar histórico existente
+    history = []
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'r') as f:
+                history = json.load(f)
+        except:
+            history = []
+    
+    # Añadir nuevo registro
+    history.append(record)
+    
+    # Limitar a últimos 100 registros
+    if len(history) > 100:
+        history = history[-100:]
+    
+    # Guardar
+    try:
+        with open(filename, 'w') as f:
+            json.dump(history, f, indent=2)
+        return True
+    except:
+        return False
+
+def load_analysis_history(filename="analysis_history.json"):
+    """
+    Carga el histórico de análisis.
+    
+    Returns:
+        list: Lista de registros históricos
+    """
+    import os
+    
+    if not os.path.exists(filename):
+        return []
+    
+    try:
+        with open(filename, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def get_brand_evolution(brand, channel="web", filename="analysis_history.json"):
+    """
+    Obtiene la evolución histórica de una marca.
+    
+    Args:
+        brand (str): Nombre de la marca
+        channel (str): Canal a filtrar
+        filename (str): Archivo de histórico
+    
+    Returns:
+        list: Registros filtrados y ordenados por fecha
+    """
+    history = load_analysis_history(filename)
+    
+    # Filtrar por marca y canal
+    filtered = [
+        record for record in history 
+        if record.get("brand", "").lower() == brand.lower() 
+        and record.get("channel", "") == channel
+    ]
+    
+    # Ordenar por timestamp
+    filtered.sort(key=lambda x: x.get("timestamp", ""))
+    
+    return filtered
+
+def create_evolution_chart(evolution_data, metric="avg_value"):
+    """
+    Crea gráfico de evolución histórica.
+    
+    Args:
+        evolution_data (list): Datos de evolución
+        metric (str): Métrica a graficar
+    
+    Returns:
+        plotly.graph_objects.Figure: Gráfico de evolución
+    """
+    if not evolution_data:
+        return None
+    
+    fig = go.Figure()
+    
+    # Extraer datos
+    timestamps = [record["timestamp"][:10] for record in evolution_data]  # Solo fecha
+    values = [record["metrics"].get(metric, 0) for record in evolution_data]
+    
+    # Gráfico de línea
+    fig.add_trace(go.Scatter(
+        x=timestamps,
+        y=values,
+        mode='lines+markers',
+        name=metric.replace("_", " ").title(),
+        line=dict(color='#FF6B00', width=3),
+        marker=dict(size=8, color='#FF6B00'),
+        hovertemplate='<b>%{x}</b><br>Valor: %{y:.1f}<extra></extra>'
+    ))
+    
+    metric_names = {
+        "avg_value": "Promedio 5 Años",
+        "month_change": "Cambio Mensual (%)",
+        "quarter_change": "Cambio Trimestral (%)",
+        "year_change": "Cambio Anual (%)"
+    }
+    
+    fig.update_layout(
+        title=dict(
+            text=f"📈 Evolución: {metric_names.get(metric, metric)}",
+            font=dict(size=18, color='#1d1d1f', family='Inter')
+        ),
+        xaxis=dict(
+            title="Fecha de Análisis",
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)'
+        ),
+        yaxis=dict(
+            title=metric_names.get(metric, metric),
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)'
+        ),
+        hovermode='x',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Inter, -apple-system, sans-serif'),
+        height=350,
+        margin=dict(l=60, r=40, t=60, b=60)
+    )
+    
+    return fig
+
+def render_history_table(history_data, limit=20):
+    """
+    Renderiza tabla de histórico.
+    
+    Args:
+        history_data (list): Datos históricos
+        limit (int): Número máximo de registros
+    
+    Returns:
+        pandas.DataFrame: Tabla formateada
+    """
+    if not history_data:
+        return None
+    
+    # Limitar y ordenar (más recientes primero)
+    recent = sorted(history_data, key=lambda x: x.get("timestamp", ""), reverse=True)[:limit]
+    
+    # Convertir a tabla
+    table_data = []
+    for record in recent:
+        table_data.append({
+            "Fecha": record["timestamp"][:10],
+            "Hora": record["timestamp"][11:16],
+            "Marca": record["brand"],
+            "País": record.get("country_name", "N/A"),
+            "Canal": record.get("channel_name", "N/A"),
+            "Promedio": f"{record['metrics'].get('avg_value', 0):.0f}/100",
+            "Cambio Año": f"{record['metrics'].get('year_change', 0):+.1f}%"
+        })
+    
+    if table_data:
+        return pd.DataFrame(table_data)
+    return None
+
+# ================================
+# SPRINT 5: SISTEMA DE ALERTAS
+# ================================
+
+def detect_alerts(current_data, threshold_spike=30, threshold_drop=-20):
+    """
+    Detecta alertas basadas en cambios significativos.
+    
+    Args:
+        current_data (dict): Datos actuales del análisis
+        threshold_spike (int): Umbral de crecimiento significativo (%)
+        threshold_drop (int): Umbral de caída significativa (%)
+    
+    Returns:
+        list: Lista de alertas detectadas
+    """
+    alerts = []
+    
+    # Verificar cambio mensual
+    month_change = current_data.get('month_change')
+    if month_change is not None:
+        if month_change >= threshold_spike:
+            alerts.append({
+                'type': 'spike',
+                'severity': 'high',
+                'metric': 'month_change',
+                'value': month_change,
+                'message': f"🚀 Crecimiento significativo del {month_change:+.1f}% en el último mes",
+                'icon': '🚀',
+                'color': '#34C759'
+            })
+        elif month_change <= threshold_drop:
+            alerts.append({
+                'type': 'drop',
+                'severity': 'high',
+                'metric': 'month_change',
+                'value': month_change,
+                'message': f"⚠️ Caída significativa del {month_change:.1f}% en el último mes",
+                'icon': '⚠️',
+                'color': '#FF3B30'
+            })
+    
+    # Verificar cambio trimestral
+    quarter_change = current_data.get('quarter_change')
+    if quarter_change is not None:
+        if quarter_change >= threshold_spike * 1.5:  # Mayor umbral para trimestre
+            alerts.append({
+                'type': 'spike',
+                'severity': 'medium',
+                'metric': 'quarter_change',
+                'value': quarter_change,
+                'message': f"📈 Tendencia alcista sostenida: {quarter_change:+.1f}% trimestral",
+                'icon': '📈',
+                'color': '#34C759'
+            })
+        elif quarter_change <= threshold_drop * 1.5:
+            alerts.append({
+                'type': 'drop',
+                'severity': 'medium',
+                'metric': 'quarter_change',
+                'value': quarter_change,
+                'message': f"📉 Tendencia bajista sostenida: {quarter_change:.1f}% trimestral",
+                'icon': '📉',
+                'color': '#FF9500'
+            })
+    
+    # Verificar cambio anual
+    year_change = current_data.get('year_change')
+    if year_change is not None:
+        if year_change >= threshold_spike * 2:  # Mayor umbral para anual
+            alerts.append({
+                'type': 'spike',
+                'severity': 'low',
+                'metric': 'year_change',
+                'value': year_change,
+                'message': f"🌟 Crecimiento anual extraordinario: {year_change:+.1f}%",
+                'icon': '🌟',
+                'color': '#007AFF'
+            })
+        elif year_change <= threshold_drop * 2:
+            alerts.append({
+                'type': 'drop',
+                'severity': 'low',
+                'metric': 'year_change',
+                'value': year_change,
+                'message': f"⚡ Declive anual preocupante: {year_change:.1f}%",
+                'icon': '⚡',
+                'color': '#FF3B30'
+            })
+    
+    # Verificar promedio bajo
+    avg_value = current_data.get('avg_value')
+    if avg_value is not None and avg_value < 20:
+        alerts.append({
+            'type': 'low_interest',
+            'severity': 'medium',
+            'metric': 'avg_value',
+            'value': avg_value,
+            'message': f"⚡ Interés muy bajo: promedio de {avg_value:.0f}/100",
+            'icon': '⚡',
+            'color': '#FF9500'
+        })
+    elif avg_value is not None and avg_value > 80:
+        alerts.append({
+            'type': 'high_interest',
+            'severity': 'low',
+            'metric': 'avg_value',
+            'value': avg_value,
+            'message': f"🔥 Interés muy alto: promedio de {avg_value:.0f}/100",
+            'icon': '🔥',
+            'color': '#34C759'
+        })
+    
+    return alerts
+
+def compare_with_history(brand, country, channel, current_data, filename="analysis_history.json"):
+    """
+    Compara análisis actual con histórico para detectar cambios.
+    
+    Args:
+        brand (str): Marca
+        country (str): País
+        channel (str): Canal
+        current_data (dict): Datos actuales
+        filename (str): Archivo de histórico
+    
+    Returns:
+        dict: Comparación con último análisis
+    """
+    history = load_analysis_history(filename)
+    
+    # Filtrar por marca, país y canal
+    relevant = [
+        r for r in history
+        if r.get('brand', '').lower() == brand.lower()
+        and r.get('country', '') == country
+        and r.get('channel', '') == channel
+    ]
+    
+    if not relevant:
+        return None
+    
+    # Obtener último registro (más reciente)
+    last_record = sorted(relevant, key=lambda x: x.get('timestamp', ''))[-1]
+    
+    # Calcular diferencias
+    comparison = {
+        'last_date': last_record['timestamp'][:10],
+        'changes': {}
+    }
+    
+    for metric in ['avg_value', 'month_change', 'quarter_change', 'year_change']:
+        current_val = current_data.get(metric, 0)
+        last_val = last_record['metrics'].get(metric, 0)
+        
+        if current_val is not None and last_val is not None:
+            diff = current_val - last_val
+            comparison['changes'][metric] = {
+                'current': current_val,
+                'last': last_val,
+                'diff': diff,
+                'diff_pct': (diff / last_val * 100) if last_val != 0 else 0
+            }
+    
+    return comparison
+
+def render_alert_card(alert):
+    """
+    Renderiza una alerta con estilo.
+    
+    Args:
+        alert (dict): Alerta a renderizar
+    
+    Returns:
+        str: HTML de la alerta
+    """
+    severity_colors = {
+        'high': '#FF3B30',
+        'medium': '#FF9500',
+        'low': '#007AFF'
+    }
+    
+    bg_color = severity_colors.get(alert['severity'], '#6e6e73')
+    
+    html = f"""
+    <div style="
+        background: linear-gradient(135deg, {bg_color}15 0%, {bg_color}05 100%);
+        border-left: 4px solid {bg_color};
+        border-radius: 12px;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1rem;
+        animation: slideInRight 0.4s ease;
+    ">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 1.5rem;">{alert['icon']}</span>
+            <div style="flex: 1;">
+                <div style="color: #1d1d1f; font-weight: 600; margin-bottom: 0.25rem;">
+                    {alert['message']}
+                </div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">
+                    Métrica: {alert['metric'].replace('_', ' ').title()} | 
+                    Valor: {alert['value']:.1f}
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html
+
+def render_comparison_card(comparison):
+    """
+    Renderiza comparación con histórico.
+    
+    Args:
+        comparison (dict): Datos de comparación
+    
+    Returns:
+        str: HTML de comparación
+    """
+    if not comparison or not comparison.get('changes'):
+        return ""
+    
+    html = f"""
+    <div style="
+        background: white;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    ">
+        <h4 style="margin: 0 0 1rem 0; color: #1d1d1f;">
+            📊 Comparación con último análisis ({comparison['last_date']})
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+    """
+    
+    for metric, data in comparison['changes'].items():
+        metric_name = {
+            'avg_value': 'Promedio 5Y',
+            'month_change': 'Cambio Mes',
+            'quarter_change': 'Cambio Trim',
+            'year_change': 'Cambio Año'
+        }.get(metric, metric)
+        
+        diff = data['diff']
+        arrow = "↑" if diff > 0 else "↓" if diff < 0 else "→"
+        color = "#34C759" if diff > 0 else "#FF3B30" if diff < 0 else "#6e6e73"
+        
+        html += f"""
+        <div style="
+            background: rgba(0, 0, 0, 0.02);
+            padding: 1rem;
+            border-radius: 12px;
+        ">
+            <div style="color: #6e6e73; font-size: 0.85rem; margin-bottom: 0.5rem;">
+                {metric_name}
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 0.5rem;">
+                <span style="font-size: 1.5rem; font-weight: 700; color: #1d1d1f;">
+                    {data['current']:.1f}
+                </span>
+                <span style="color: {color}; font-weight: 600;">
+                    {arrow} {abs(diff):.1f}
+                </span>
+            </div>
+            <div style="color: #86868b; font-size: 0.75rem; margin-top: 0.25rem;">
+                Anterior: {data['last']:.1f}
+            </div>
+        </div>
+        """
+    
+    html += """
+        </div>
+    </div>
+    """
+    
+    return html
+
+# ================================
+# SPRINT 6: VISUALIZACIONES NUEVAS APIs
+# ================================
+
+def create_region_map(region_data, country_name):
+    """
+    Crea mapa de calor de interés por región.
+    """
+    if not region_data or 'interest_by_region' not in region_data:
+        return None
+    
+    regions = region_data['interest_by_region']
+    
+    # Ordenar por valor
+    sorted_regions = sorted(regions, key=lambda x: x.get('extracted_value', 0), reverse=True)
+    
+    # Top 15 regiones
+    top_regions = sorted_regions[:15]
+    
+    locations = [r['location'] for r in top_regions]
+    values = [r.get('extracted_value', 0) for r in top_regions]
+    
+    fig = go.Figure(data=[
+        go.Bar(
+            y=locations,
+            x=values,
+            orientation='h',
+            marker=dict(
+                color=values,
+                colorscale='Reds',
+                showscale=True,
+                colorbar=dict(title="Interés")
+            ),
+            text=[f"{v}/100" for v in values],
+            textposition='auto',
+            hovertemplate='<b>%{y}</b><br>Interés: %{x}/100<extra></extra>'
+        )
+    ])
+    
+    fig.update_layout(
+        title=dict(
+            text=f"📍 Interés por Región - {country_name}",
+            font=dict(size=18, color='#1d1d1f', family='Inter')
+        ),
+        xaxis=dict(title="Interés (0-100)", range=[0, 100]),
+        yaxis=dict(title=""),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family='Inter'),
+        height=500,
+        margin=dict(l=150, r=40, t=60, b=60)
+    )
+    
+    return fig
+
+def render_news_card(news_item):
+    """
+    Renderiza una tarjeta de noticia.
+    """
+    title = news_item.get('title', 'Sin título')
+    link = news_item.get('link', '#')
+    source = news_item.get('source', 'Fuente desconocida')
+    date = news_item.get('date', '')
+    thumbnail = news_item.get('thumbnail', '')
+    
+    html = f"""
+    <div style="
+        background: white;
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        transition: transform 0.2s, box-shadow 0.2s;
+    " tabindex="0"
+       onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.1)';" 
+       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none';"
+       onfocus="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.1)';"
+       onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+        <div style="display: flex; gap: 1rem;">
+            {'<img src="' + thumbnail + '" alt="Trending search thumbnail" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;">' if thumbnail else ''}
+            <div style="flex: 1;">
+                <a href="{link}" target="_blank" style="
+                    color: #1d1d1f;
+                    font-weight: 600;
+                    font-size: 0.95rem;
+                    text-decoration: none;
+                    display: block;
+                    margin-bottom: 0.5rem;
+                ">{title}</a>
+                <div style="color: #6e6e73; font-size: 0.85rem;">
+                    <span style="font-weight: 500;">{source}</span>
+                    {' • ' + date if date else ''}
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html
+
+def render_trending_item(trend):
+    """
+    Renderiza un item de tendencia.
+    """
+    query = trend.get('query', '')
+    traffic = trend.get('search_count', 'N/A')
+    percentage = trend.get('percentage_increase', 0)
+    
+    # Color según porcentaje
+    if percentage >= 100:
+        color = '#FF3B30'
+        icon = '🔥'
+    elif percentage >= 50:
+        color = '#FF9500'
+        icon = '📈'
+    else:
+        color = '#34C759'
+        icon = '↗️'
+    
+    html = f"""
+    <div style="
+        background: linear-gradient(135deg, {color}10 0%, {color}05 100%);
+        border-left: 3px solid {color};
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="flex: 1;">
+                <span style="font-size: 1.2rem; margin-right: 0.5rem;">{icon}</span>
+                <span style="color: #1d1d1f; font-weight: 600;">{query}</span>
+            </div>
+            <div style="text-align: right;">
+                <div style="color: {color}; font-weight: 700; font-size: 0.9rem;">
+                    +{percentage}%
+                </div>
+                <div style="color: #86868b; font-size: 0.75rem;">
+                    {traffic} búsquedas
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html
+
+# ================================
+# AMAZON INSIGHTS VISUALIZATION
+# ================================
+
+def render_amazon_insights(amazon_analysis, trends_insight):
+    """
+    Renderiza el panel de insights Amazon vs Google Trends.
+    """
+    if not amazon_analysis:
+        return """
+        <div style="background: #f5f5f7; padding: 1rem; border-radius: 12px;">
+            <p style="color: #6e6e73; margin: 0;">No hay datos de Amazon disponibles</p>
+        </div>
+        """
+    
+    icon = trends_insight.get('icon', 'ℹ️')
+    status = trends_insight.get('status', 'neutral')
+    message = trends_insight.get('message', '')
+    recommendation = trends_insight.get('recommendation', '')
+    
+    # Color según status
+    status_colors = {
+        'aligned': '#34C759',
+        'opportunity': '#FF9500',
+        'warning': '#FF3B30',
+        'neutral': '#007AFF'
+    }
+    
+    color = status_colors.get(status, '#007AFF')
+    
+    html = f"""
+    <div style="
+        background: linear-gradient(135deg, {color}15 0%, {color}05 100%);
+        border-left: 4px solid {color};
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    ">
+        <div style="display: flex; align-items: start; gap: 1rem; margin-bottom: 1rem;">
+            <span style="font-size: 2rem;">{icon}</span>
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #1d1d1f;">Amazon vs Google Trends</h4>
+                <p style="color: #1d1d1f; margin: 0 0 0.5rem 0; font-weight: 500;">{message}</p>
+                <p style="
+                    background: {color}25;
+                    padding: 0.75rem;
+                    border-radius: 8px;
+                    margin: 0;
+                    color: #1d1d1f;
+                    font-weight: 600;
+                ">💡 {recommendation}</p>
+            </div>
+        </div>
+        
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid {color}30;
+        ">
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Productos Amazon</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {amazon_analysis['total_products']}
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Rating Promedio</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {amazon_analysis['avg_rating']:.1f} ⭐
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">% con Prime</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {amazon_analysis['prime_percentage']:.0f}%
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Total Reviews</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {amazon_analysis['total_reviews']:,}
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html
+
+# ================================
+# YOUTUBE INTELLIGENCE VISUALIZATION
+# ================================
+
+def render_youtube_insights(youtube_analysis, brand):
+    """
+    Panel principal YouTube Intelligence.
+    """
+    if not youtube_analysis:
+        return """
+        <div style="background: #f5f5f7; padding: 1rem; border-radius: 12px;">
+            <p style="color: #6e6e73; margin: 0;">No hay datos de YouTube disponibles</p>
+        </div>
+        """
+    
+    total = youtube_analysis['total_videos']
+    videos_7d = youtube_analysis['by_period']['7d']
+    videos_30d = youtube_analysis['by_period']['30d']
+    avg_views = youtube_analysis['engagement_avg']
+    
+    # Detectar tendencia
+    growth_rate = ((videos_7d * 4) / videos_30d * 100 - 100) if videos_30d > 0 else 0
+    
+    if growth_rate > 50:
+        status = 'hot'
+        icon = '🔥'
+        color = '#FF3B30'
+        message = f'Contenido VIRAL: +{growth_rate:.0f}% crecimiento semanal'
+    elif growth_rate > 20:
+        status = 'trending'
+        icon = '📈'
+        color = '#FF9500'
+        message = f'Tendencia POSITIVA: +{growth_rate:.0f}% crecimiento'
+    elif growth_rate > 0:
+        status = 'stable'
+        icon = '✅'
+        color = '#34C759'
+        message = f'Contenido ESTABLE: +{growth_rate:.0f}% crecimiento'
+    else:
+        status = 'declining'
+        icon = '📉'
+        color = '#007AFF'
+        message = f'Tendencia DESCENDENTE: {growth_rate:.0f}%'
+    
+    html = f"""
+    <div style="
+        background: linear-gradient(135deg, {color}15 0%, {color}05 100%);
+        border-left: 4px solid {color};
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    ">
+        <div style="display: flex; align-items: start; gap: 1rem; margin-bottom: 1rem;">
+            <span style="font-size: 2rem;">{icon}</span>
+            <div style="flex: 1;">
+                <h4 style="margin: 0 0 0.5rem 0; color: #1d1d1f;">YouTube Content Intelligence</h4>
+                <p style="color: #1d1d1f; margin: 0; font-weight: 600; font-size: 1.1rem;">{message}</p>
+            </div>
+        </div>
+        
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid {color}30;
+        ">
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Total Videos</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {total}
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Últimos 7 días</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {videos_7d}
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Últimos 30 días</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {videos_30d}
+                </div>
+            </div>
+            <div>
+                <div style="color: #6e6e73; font-size: 0.85rem;">Views Promedio</div>
+                <div style="color: #1d1d1f; font-size: 1.5rem; font-weight: 700;">
+                    {avg_views:,.0f}
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    
+    return html
+
+def render_product_detection_table(products_dict):
+    """
+    Tabla de productos específicos detectados.
+    """
+    if not products_dict:
+        return None
+    
+    html = """
+    <div style="
+        background: white;
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 12px;
+        overflow: hidden;
+    ">
+        <div style="
+            background: linear-gradient(135deg, #FF6B0015 0%, #FF6B0005 100%);
+            padding: 1rem;
+            border-bottom: 1px solid rgba(0,0,0,0.08);
+        ">
+            <h4 style="margin: 0; color: #1d1d1f;">🎯 Productos Específicos Detectados</h4>
+            <p style="margin: 0.5rem 0 0 0; color: #6e6e73; font-size: 0.9rem;">
+                Productos mencionados en títulos de videos
+            </p>
+        </div>
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f5f5f7;">
+                        <th style="padding: 0.75rem; text-align: left; color: #1d1d1f; font-weight: 600;">Producto</th>
+                        <th style="padding: 0.75rem; text-align: center; color: #1d1d1f; font-weight: 600;">Videos</th>
+                        <th style="padding: 0.75rem; text-align: center; color: #1d1d1f; font-weight: 600;">Tendencia</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """
+    
+    for idx, (product, data) in enumerate(list(products_dict.items())[:10]):
+        count = data['count']
+        
+        # SECURITY: Escape HTML to prevent XSS
+        import html as html_escape
+        product_safe = html_escape.escape(product.title())
+        
+        # Indicador de tendencia
+        if count >= 10:
+            trend_icon = '🔥'
+            trend_color = '#FF3B30'
+            trend_text = 'HOT'
+        elif count >= 5:
+            trend_icon = '📈'
+            trend_color = '#FF9500'
+            trend_text = 'Trending'
+        else:
+            trend_icon = '↗️'
+            trend_color = '#34C759'
+            trend_text = 'Emerging'
+        
+        bg_color = '#ffffff' if idx % 2 == 0 else '#f9f9f9'
+        
+        html += f"""
+        <tr style="background: {bg_color};">
+            <td style="padding: 0.75rem; border-top: 1px solid rgba(0,0,0,0.05);">
+                <span style="font-weight: 500; color: #1d1d1f;">{product_safe}</span>
+            </td>
+            <td style="padding: 0.75rem; text-align: center; border-top: 1px solid rgba(0,0,0,0.05);">
+                <span style="
+                    background: #FF6B0020;
+                    color: #FF6B00;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 12px;
+                    font-weight: 600;
+                ">{count}</span>
+            </td>
+            <td style="padding: 0.75rem; text-align: center; border-top: 1px solid rgba(0,0,0,0.05);">
+                <span style="color: {trend_color}; font-weight: 600;">
+                    {trend_icon} {trend_text}
+                </span>
+            </td>
+        </tr>
+        """
+    
+    html += """
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    
+    return html
 
 # ================================
 # COMPONENTES UI
@@ -1598,8 +3328,11 @@ def render_empty_state(icon, title, message, suggestions=None):
                 transition: all 0.2s ease;
                 cursor: pointer;
                 font-weight: 500;
-            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
-               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'">
+            " tabindex="0"
+               onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
+               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'"
+               onfocus="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
+               onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'">
                 {suggestion}
             </span>
             """
@@ -2018,14 +3751,18 @@ def render_related_trends_with_sparklines(topics_data, max_items=6):
     # Limitar a max_items
     topics_to_show = rising_topics[:max_items]
     
-    html = '<div style="margin-top: 2rem;">'
-    html += '<h4 style="color: #1d1d1f; margin-bottom: 1rem;">🔗 Tendencias Relacionadas</h4>'
-    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">'
+    html_content = '<div style="margin-top: 2rem;">'
+    html_content += '<h4 style="color: #1d1d1f; margin-bottom: 1rem;">🔗 Tendencias Relacionadas</h4>'
+    html_content += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">'
     
     for idx, topic in enumerate(topics_to_show, start=1):
         topic_title = topic.get('topic', {}).get('title', 'N/A')
         topic_type = topic.get('topic', {}).get('type', '')
         value = topic.get('value', 0)
+        
+        # Fix: Escape HTML to prevent XSS and rendering issues
+        topic_title_safe = html.escape(str(topic_title))
+        topic_type_safe = html.escape(str(topic_type))
         
         # Generar datos simulados para sparkline (en prod vendría del API)
         # FIX: random ya importado arriba
@@ -2034,7 +3771,7 @@ def render_related_trends_with_sparklines(topics_data, max_items=6):
         # SPRINT 4: Añadir clases de animación con delay
         animation_class = f"animate-scaleIn delay-{idx}"
         
-        html += f"""
+        html_content += f"""
         <div class="sparkline-card {animation_class}" style="
             background: white;
             border: 1px solid rgba(0, 0, 0, 0.08);
@@ -2043,10 +3780,10 @@ def render_related_trends_with_sparklines(topics_data, max_items=6):
             cursor: pointer;
         ">
             <div style="font-weight: 600; color: #1d1d1f; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                {topic_title}
+                {topic_title_safe}
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.8rem; color: #6e6e73;">{topic_type}</span>
+                <span style="font-size: 0.8rem; color: #6e6e73;">{topic_type_safe}</span>
                 <span style="font-size: 0.8rem; font-weight: 600; color: #34C759;">
                     {'Breakout' if isinstance(value, str) and 'Breakout' in str(value) else f'+{value}%'}
                 </span>
@@ -2054,18 +3791,18 @@ def render_related_trends_with_sparklines(topics_data, max_items=6):
         </div>
         """
     
-    html += '</div>'
+    html_content += '</div>'
     
     # Link para ver todas
     total_topics = len(rising_topics)
     if total_topics > max_items:
-        html += f'<div style="text-align: center; margin-top: 1rem;">'
-        html += f'<a href="#" style="color: #007AFF; text-decoration: none; font-weight: 500;">→ Ver todas las {total_topics} tendencias relacionadas</a>'
-        html += '</div>'
+        html_content += f'<div style="text-align: center; margin-top: 1rem;">'
+        html_content += f'<a href="#" style="color: #007AFF; text-decoration: none; font-weight: 500;">→ Ver todas las {total_topics} tendencias relacionadas</a>'
+        html_content += '</div>'
     
-    html += '</div>'
+    html_content += '</div>'
     
-    return html
+    return html_content
 
 # ================================
 # SPRINT 3: BUBBLE CHART
@@ -2688,17 +4425,27 @@ def display_queries_filtered(queries_data, categories, threshold, query_type="al
         st.markdown(render_low_relevance_state(threshold), unsafe_allow_html=True)
         return
     
+    # Ordenar queries PRIMERO (antes de mostrar contador)
+    # Mapeo de opciones a valores
+    sort_mapping = {
+        "Volumen de búsqueda": "volume",
+        "Crecimiento": "growth",
+        "Alfabético": "alphabetical"
+    }
+    
+    # Determinar sort_by inicial
+    sort_by_value = sort_by if sort_by in sort_mapping.values() else "volume"
+    
+    # Ordenar queries
+    sorted_queries = sort_queries(all_queries, sort_by_value)
+    
+    # Paginar ANTES de mostrar contador
+    paginated = paginate_data(sorted_queries, page_size=20, page=page)
+    
     # Header con contador y ordenar
     col_sort, col_count = st.columns([3, 1])
     with col_sort:
         st.markdown(f'<div class="sort-container">', unsafe_allow_html=True)
-        
-        # Mapeo de opciones a valores
-        sort_mapping = {
-            "Volumen de búsqueda": "volume",
-            "Crecimiento": "growth",
-            "Alfabético": "alphabetical"
-        }
         
         sort_option = st.selectbox(
             "Ordenar por",
@@ -2717,12 +4464,6 @@ def display_queries_filtered(queries_data, categories, threshold, query_type="al
             f'<div class="results-counter">{paginated["total_items"]} resultados</div>',
             unsafe_allow_html=True
         )
-    
-    # Ordenar queries CON EL VALOR DEL DROPDOWN
-    sorted_queries = sort_queries(all_queries, sort_by_value)
-    
-    # Paginar
-    paginated = paginate_data(sorted_queries, page_size=20, page=page)
     
     # Renderizar queries con barras
     max_value = max([q['numeric_value'] for q in paginated['data']], default=1)
@@ -2779,6 +4520,45 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================================
+# SPRINT 6: TRENDING NOW WIDGET
+# ================================
+
+# Añadir expander de trending now
+with st.expander("🔥 **Tendencias del Momento** (Actualizado cada 10 min)", expanded=False):
+    col_trend1, col_trend2 = st.columns([1, 3])
+    
+    with col_trend1:
+        trending_geo = st.selectbox(
+            "País",
+            ["ES", "PT", "FR", "IT", "DE"],
+            format_func=lambda x: f"{COUNTRIES[x]['flag']} {COUNTRIES[x]['name']}",
+            key="trending_geo"
+        )
+        
+        trending_hours = st.selectbox(
+            "Período",
+            [1, 4, 24],
+            format_func=lambda x: f"Últimas {x}h",
+            index=1,
+            key="trending_hours"
+        )
+    
+    with col_trend2:
+        trending_data = get_trending_now(trending_geo, trending_hours)
+        
+        if trending_data and 'trending_searches' in trending_data:
+            trends = trending_data['trending_searches'][:10]
+            
+            if trends:
+                st.markdown("**🔥 Top Tendencias:**")
+                for trend in trends:
+                    st.markdown(render_trending_item(trend), unsafe_allow_html=True)
+            else:
+                st.info("No hay tendencias disponibles")
+        else:
+            st.info("No se pudieron cargar las tendencias")
+
+# ================================
 # FLOATING FOOTER TOOLBAR
 # ================================
 
@@ -2794,7 +4574,7 @@ with toolbar_container:
     with col1:
         search_mode = st.selectbox(
             "🔎 Modo",
-            ["🔍 Manual", "🔗 URL", "📊 CSV"],
+            ["🔍 Manual", "⚖️ Comparador", "📈 Histórico", "🔗 URL", "📊 CSV"],
             key="search_mode"
         )
     
@@ -2842,13 +4622,39 @@ st.markdown("---")
 # ================================
 
 if search_mode == "🔍 Manual":
+    # SPRINT 5: Selector de canal con estado persistente (BUGFIX)
+    st.markdown("#### 📡 Canal de Búsqueda")
+    channel_cols = st.columns(5)
+    
+    # Usar session_state para persistencia
+    for idx, (channel_key, channel_data) in enumerate(CHANNELS.items()):
+        with channel_cols[idx]:
+            # Determinar si es el canal activo
+            is_active = st.session_state.selected_channel == channel_key
+            button_type = "primary" if is_active else "secondary"
+            
+            if st.button(
+                f"{channel_data['icon']} {channel_data['name']}", 
+                key=f"channel_{channel_key}",
+                use_container_width=True,
+                help=channel_data['description'],
+                type=button_type
+            ):
+                st.session_state.selected_channel = channel_key
+                st.rerun()
+    
+    # Mostrar canal seleccionado
+    selected_channel = st.session_state.selected_channel
+    st.info(f"**Canal activo:** {CHANNELS[selected_channel]['icon']} {CHANNELS[selected_channel]['name']}")
+    
     col1, col2 = st.columns([4, 1])
     
     with col1:
         search_query = st.text_input(
             "Marca o keyword",
             placeholder="Ej: Logitech, ASUS ROG, Razer...",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            value=st.session_state.search_query
         )
     
     with col2:
@@ -2856,21 +4662,51 @@ if search_mode == "🔍 Manual":
         search_button = st.button("🔍 Analizar", type="primary", use_container_width=True)
     
     if search_button and search_query and selected_countries:
-        results = analyze_brand(search_query, selected_countries, selected_categories, relevance_threshold)
-        
-        st.markdown(f"""
-        <div class="glass-card">
-            <h2 style="margin: 0; color: #1d1d1f;">📊 {search_query}</h2>
-            <p style="color: #6e6e73; margin-top: 0.5rem;">Análisis completo multi-país</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for geo, data in results.items():
-            country_name = f"{COUNTRIES[geo]['flag']} {COUNTRIES[geo]['name']}"
+        # BUGFIX: Mejor manejo de errores
+        try:
+            # Guardar query en session_state
+            st.session_state.search_query = search_query
             
-            with st.expander(f"**{country_name}**", expanded=True):
-                # MÉTRICAS
-                st.markdown("#### 📈 Métricas Clave")
+            with st.spinner(f"🔍 Analizando '{search_query}' en {len(selected_countries)} país(es)..."):
+                results = analyze_brand(search_query, selected_countries, selected_categories, relevance_threshold, selected_channel)
+            
+            # Verificar si hay resultados
+            if not results or all(not data for data in results.values()):
+                st.error("❌ No se pudieron obtener datos. Verifica tu API key o intenta más tarde.")
+                st.stop()
+            
+            st.markdown(f"""
+            <div class="glass-card">
+                <h2 style="margin: 0; color: #1d1d1f;">📊 {search_query}</h2>
+                <p style="color: #6e6e73; margin-top: 0.5rem;">Análisis completo multi-país</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # SPRINT 5: Botón guardar en histórico
+            col_save, col_spacer = st.columns([2, 8])
+            with col_save:
+                if st.button("💾 Guardar en Histórico", use_container_width=True):
+                    try:
+                        saved_count = 0
+                        for geo, data in results.items():
+                            if save_analysis_to_history(search_query, geo, selected_channel, data):
+                                saved_count += 1
+                        
+                        if saved_count > 0:
+                            st.success(f"✅ Guardado {saved_count} análisis en histórico")
+                        else:
+                            st.warning("⚠️ No se pudo guardar en histórico")
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar: {str(e)}")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            for geo, data in results.items():
+                country_name = f"{COUNTRIES[geo]['flag']} {COUNTRIES[geo]['name']}"
+                
+                with st.expander(f"**{country_name}**", expanded=True):
+                    # MÉTRICAS
+                    st.markdown("#### 📈 Métricas Clave")
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
@@ -2885,6 +4721,25 @@ if search_mode == "🔍 Manual":
                 with col4:
                     val = f"{data['avg_value']:.0f}/100" if data['avg_value'] else "N/A"
                     st.markdown(render_metric_card("Promedio 5Y", val, delay=4), unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # SPRINT 5: SISTEMA DE ALERTAS
+                st.markdown("#### 🔔 Alertas y Cambios Significativos")
+                
+                # Detectar alertas
+                alerts = detect_alerts(data, threshold_spike=30, threshold_drop=-20)
+                
+                if alerts:
+                    for alert in alerts:
+                        st.markdown(render_alert_card(alert), unsafe_allow_html=True)
+                else:
+                    st.info("✅ Sin alertas. Todos los cambios dentro de rangos normales.")
+                
+                # Comparación con histórico
+                comparison = compare_with_history(search_query, geo, selected_channel, data)
+                if comparison:
+                    st.markdown(render_comparison_card(comparison), unsafe_allow_html=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -2924,14 +4779,76 @@ if search_mode == "🔍 Manual":
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                 
-                # GRÁFICO
+                # GRÁFICO CON SELECTOR DE RANGO TEMPORAL
                 if data['timeline'] and 'interest_over_time' in data['timeline']:
-                    st.markdown("#### 📊 Tendencia Temporal (5 años)")
                     timeline = data['timeline']['interest_over_time']['timeline_data']
+                    
+                    # Selector de rango temporal
+                    col_title, col_range = st.columns([2, 1])
+                    
+                    with col_title:
+                        st.markdown("#### 📊 Tendencia Temporal")
+                    
+                    with col_range:
+                        time_range = st.selectbox(
+                            "Período",
+                            ["Último mes", "Últimos 3 meses", "Últimos 6 meses", "Último año", "Últimos 2 años", "Todo (5 años)"],
+                            index=2,  # Default: Últimos 6 meses
+                            key="time_range_selector",
+                            label_visibility="collapsed"
+                        )
+                    
+                    # Filtrar datos según el rango seleccionado
                     dates = [p['date'] for p in timeline]
                     values = [p['values'][0]['extracted_value'] if p['values'] else 0 for p in timeline]
-                    fig = create_trend_chart(dates, values, search_query)
-                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                    
+                    # Calcular fecha de corte según selección
+                    from datetime import datetime, timedelta
+                    today = datetime.now()
+                    
+                    if time_range == "Último mes":
+                        cutoff_date = today - timedelta(days=30)
+                        months_back = 1
+                    elif time_range == "Últimos 3 meses":
+                        cutoff_date = today - timedelta(days=90)
+                        months_back = 3
+                    elif time_range == "Últimos 6 meses":
+                        cutoff_date = today - timedelta(days=180)
+                        months_back = 6
+                    elif time_range == "Último año":
+                        cutoff_date = today - timedelta(days=365)
+                        months_back = 12
+                    elif time_range == "Últimos 2 años":
+                        cutoff_date = today - timedelta(days=730)
+                        months_back = 24
+                    else:  # Todo (5 años)
+                        cutoff_date = today - timedelta(days=1825)
+                        months_back = 60
+                    
+                    # Filtrar datos
+                    filtered_dates = []
+                    filtered_values = []
+                    for date_str, value in zip(dates, values):
+                        try:
+                            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                            if date_obj >= cutoff_date:
+                                filtered_dates.append(date_str)
+                                filtered_values.append(value)
+                        except:
+                            # Si falla el parsing, incluir el dato
+                            filtered_dates.append(date_str)
+                            filtered_values.append(value)
+                    
+                    # Crear gráfico con datos filtrados
+                    if filtered_dates and filtered_values:
+                        fig = create_trend_chart(filtered_dates, filtered_values, search_query)
+                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                        
+                        # Info de contexto
+                        if len(filtered_dates) < len(dates):
+                            st.caption(f"ℹ️ Mostrando {len(filtered_dates)} puntos de datos de los últimos {months_back} meses")
+                    else:
+                        st.info("No hay datos disponibles para el período seleccionado")
                 
                 # SPRINT 2: TENDENCIAS RELACIONADAS CON SPARKLINES
                 if data.get('topics'):
@@ -2995,99 +4912,832 @@ if search_mode == "🔍 Manual":
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # TABS PARA QUERIES Y TOPICS
-                tab1, tab2, tab3 = st.tabs(["🔍 Queries Filtradas", "📑 Related Topics", "🔥 Trending"])
+                # TABS CON SEPARACIÓN POR FUENTE DE DATOS
+                st.markdown("### 📊 Análisis por Fuente de Datos")
+                st.markdown("""
+                <div style="background: #f5f5f7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <p style="margin: 0; color: #1d1d1f; font-size: 0.9rem;">
+                        💡 <strong>Datos separados por plataforma</strong> para entender el origen de cada insight
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                with tab1:
-                    st.markdown("#### Búsquedas Relacionadas (Filtradas)")
-                    qtype_map = {
-                        "Todos": "all",
-                        "Preguntas": "❓ Pregunta",
-                        "Atributos": "🏷️ Atributo"
+                # Tabs principales por fuente
+                source_tabs = st.tabs([
+                    "🌐 Google Trends", 
+                    "🛍️ Amazon", 
+                    "🎥 YouTube", 
+                    "📊 Comparación Multi-plataforma"
+                ])
+                
+                # ========== TAB 1: GOOGLE TRENDS ==========
+                with source_tabs[0]:
+                    st.markdown("""
+                    <div style="display: inline-block; background: #007AFF; color: white; padding: 0.5rem 1rem; border-radius: 20px; margin-bottom: 1rem;">
+                        🌐 Fuente: Google Trends
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Sub-tabs para Google Trends
+                    google_subtabs = st.tabs(["🔍 Queries", "📑 Topics", "🔥 Trending"])
+                    
+                    with google_subtabs[0]:
+                        st.markdown("#### Búsquedas Relacionadas en Google")
+                        qtype_map = {
+                            "Todos": "all",
+                            "Preguntas": "❓ Pregunta",
+                            "Atributos": "🏷️ Atributo"
+                        }
+                        
+                        # Inicializar página si no existe
+                        if 'page_queries' not in st.session_state:
+                            st.session_state.page_queries = 1
+                        
+                        display_queries_filtered(
+                            data['queries'], 
+                            selected_categories, 
+                            relevance_threshold, 
+                            qtype_map[query_type_filter],
+                            sort_by="volume",
+                            page=st.session_state.get('page_queries', 1)
+                        )
+                    
+                    with google_subtabs[1]:
+                        if data['topics'] and 'related_topics' in data['topics']:
+                            # SPRINT 3: BUBBLE CHART
+                            st.markdown("#### 🫧 Mapa Interactivo de Temas (Google)")
+                            
+                            bubble_fig = create_bubble_chart(data['topics'], max_topics=30)
+                            
+                            if bubble_fig:
+                                st.plotly_chart(bubble_fig, use_container_width=True, config={
+                                    'displayModeBar': True,
+                                    'displaylogo': False,
+                                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+                                })
+                                
+                                # Leyenda de colores
+                                st.markdown("""
+                                <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap;">
+                                    <span style="color: #007AFF;">● Search term</span>
+                                    <span style="color: #34C759;">● Topic</span>
+                                    <span style="color: #FF9500;">● Brand</span>
+                                    <span style="color: #FF3B30;">● Product</span>
+                                    <span style="color: #5856D6;">● Category</span>
+                                    <span style="color: #FFD700;">⭐ Rising</span>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                st.markdown("<br>", unsafe_allow_html=True)
+                            
+                            # Tabla tradicional en expander
+                            with st.expander("📋 Ver lista detallada de topics", expanded=False):
+                                st.markdown("#### 🔝 Top Topics")
+                                if 'top' in data['topics']['related_topics']:
+                                    topics_list = []
+                                    for t in data['topics']['related_topics']['top'][:20]:
+                                        topics_list.append({
+                                            'Topic': t.get('topic', {}).get('title', 'N/A'),
+                                            'Tipo': t.get('topic', {}).get('type', 'N/A'),
+                                            'Valor': t.get('value', 0)
+                                        })
+                                    if topics_list:
+                                        st.dataframe(pd.DataFrame(topics_list), use_container_width=True)
+                        else:
+                            # SPRINT 4: Empty state para topics
+                            st.markdown(render_no_topics_state(), unsafe_allow_html=True)
+                    
+                    with google_subtabs[2]:
+                        if data['queries'] and 'related_queries' in data['queries']:
+                            if 'rising' in data['queries']['related_queries']:
+                                st.markdown("#### 🔥 Queries en Tendencia (Rising)")
+                                rising = data['queries']['related_queries']['rising'][:15]
+                                rising_list = []
+                                for q in rising:
+                                    rising_list.append({
+                                        'Query': q.get('query', ''),
+                                        'Crecimiento': q.get('value', 'Breakout')
+                                    })
+                                if rising_list:
+                                    st.dataframe(pd.DataFrame(rising_list), use_container_width=True)
+                        else:
+                            st.info("No hay datos de tendencias")
+                
+                # ========== TAB 2: AMAZON ==========
+                with source_tabs[1]:
+                    st.markdown("""
+                    <div style="display: inline-block; background: #FF9900; color: white; padding: 0.5rem 1rem; border-radius: 20px; margin-bottom: 1rem;">
+                        🛍️ Fuente: Amazon
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Obtener datos Amazon
+                    amazon_data = get_amazon_products(search_query, geo)
+                    
+                    if amazon_data:
+                        amazon_analysis = analyze_amazon_data(amazon_data, search_query)
+                        
+                        if amazon_analysis:
+                            # Sub-tabs para Amazon
+                            amazon_subtabs = st.tabs(["📊 Métricas", "🔍 Búsquedas Amazon", "📦 Top Productos"])
+                            
+                            with amazon_subtabs[0]:
+                                st.markdown("#### 📊 Métricas Generales de Amazon")
+                                
+                                # Comparar con tendencias Google
+                                trends_change = data.get('month_change', 0)
+                                amazon_products = amazon_analysis['total_products']
+                                
+                                trends_insight = compare_trends_amazon(
+                                    trends_change,
+                                    amazon_products
+                                )
+                                
+                                # Renderizar insights
+                                st.markdown(
+                                    render_amazon_insights(amazon_analysis, trends_insight),
+                                    unsafe_allow_html=True
+                                )
+                                
+                                # Métricas adicionales
+                                st.markdown("#### 💰 Análisis de Precios")
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    min_price, max_price = amazon_analysis['price_range']
+                                    st.metric("Precio Mínimo", f"{min_price:.2f}€")
+                                
+                                with col2:
+                                    st.metric("Precio Máximo", f"{max_price:.2f}€")
+                                
+                                with col3:
+                                    avg_price = (min_price + max_price) / 2 if max_price > 0 else 0
+                                    st.metric("Precio Promedio", f"{avg_price:.2f}€")
+                            
+                            with amazon_subtabs[1]:
+                                st.markdown("#### 🔍 Búsquedas Relacionadas en Amazon")
+                                
+                                if 'related_searches' in amazon_data and amazon_data['related_searches']:
+                                    searches = amazon_data['related_searches']
+                                    
+                                    for idx, search in enumerate(searches[:10], 1):
+                                        query = search.get('query', '')
+                                        link = search.get('link', '#')
+                                        
+                                        st.markdown(f"""
+                                        <div style="
+                                            background: #fff3cd;
+                                            border-left: 3px solid #FF9900;
+                                            padding: 0.75rem;
+                                            margin-bottom: 0.5rem;
+                                            border-radius: 4px;
+                                        ">
+                                            <strong>{idx}. {query}</strong>
+                                            <a href="{link}" target="_blank" style="float: right; color: #FF9900; text-decoration: none;">
+                                                Ver en Amazon →
+                                            </a>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                else:
+                                    st.info("No hay búsquedas relacionadas disponibles en Amazon")
+                            
+                            with amazon_subtabs[2]:
+                                st.markdown("#### 📦 Top 5 Productos por Reviews")
+                                
+                                if amazon_analysis['top_products']:
+                                    cols_amazon = st.columns(5)
+                                    for idx, product in enumerate(amazon_analysis['top_products'][:5]):
+                                        with cols_amazon[idx]:
+                                            title = product.get('title', 'N/A')
+                                            price = product.get('price', 'N/A')
+                                            rating = product.get('rating', 0)
+                                            reviews = product.get('reviews_count', 0)
+                                            
+                                            st.markdown(f"""
+                                            <div style="
+                                                background: white;
+                                                border: 1px solid rgba(0,0,0,0.08);
+                                                border-radius: 8px;
+                                                padding: 0.75rem;
+                                                height: 160px;
+                                                overflow: hidden;
+                                            ">
+                                                <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem;">
+                                                    {html.escape(title[:40])}...
+                                                </div>
+                                                <div style="color: #FF9900; font-weight: 700; margin-bottom: 0.25rem;">
+                                                    {price}
+                                                </div>
+                                                <div style="color: #6e6e73; font-size: 0.8rem;">
+                                                    ⭐ {rating} ({reviews:,} reviews)
+                                                </div>
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                else:
+                                    st.info("No hay productos disponibles")
+                        else:
+                            st.info("No se pudieron analizar los datos de Amazon")
+                    else:
+                        st.info("No hay datos de Amazon disponibles para esta búsqueda")
+                
+                # ========== TAB 3: YOUTUBE ==========
+                with source_tabs[2]:
+                    st.markdown("""
+                    <div style="display: inline-block; background: #FF0000; color: white; padding: 0.5rem 1rem; border-radius: 20px; margin-bottom: 1rem;">
+                        🎥 Fuente: YouTube
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Obtener datos YouTube
+                    youtube_data = get_youtube_videos(search_query, geo)
+                    
+                    if youtube_data and 'video_results' in youtube_data:
+                        videos = youtube_data['video_results']
+                        
+                        # Sub-tabs para YouTube
+                        youtube_subtabs = st.tabs(["📊 Métricas", "📹 Top Videos", "📈 Keywords"])
+                        
+                        with youtube_subtabs[0]:
+                            st.markdown("#### 📊 Métricas de Contenido YouTube")
+                            
+                            # Calcular métricas
+                            total_videos = len(videos)
+                            
+                            # Extraer views (si están disponibles)
+                            total_views = 0
+                            videos_with_views = 0
+                            for v in videos:
+                                views_str = v.get('views', '0')
+                                try:
+                                    # Limpiar string de views
+                                    views_clean = ''.join(filter(str.isdigit, str(views_str)))
+                                    if views_clean:
+                                        total_views += int(views_clean)
+                                        videos_with_views += 1
+                                except:
+                                    pass
+                            
+                            avg_views = total_views // videos_with_views if videos_with_views > 0 else 0
+                            
+                            # Grid de métricas
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric("📹 Videos Encontrados", total_videos)
+                            
+                            with col2:
+                                st.metric("👁️ Views Totales", f"{total_views:,}")
+                            
+                            with col3:
+                                st.metric("📊 Views Promedio", f"{avg_views:,}")
+                            
+                            # Timeline de publicaciones
+                            st.markdown("#### 📅 Actividad Reciente")
+                            recent_count = sum(1 for v in videos if 'hour' in v.get('published_date', '').lower() or 'day' in v.get('published_date', '').lower())
+                            week_count = sum(1 for v in videos if 'week' in v.get('published_date', '').lower() or recent_count > 0)
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Última semana", recent_count)
+                            with col2:
+                                st.metric("Último mes", week_count)
+                            with col3:
+                                st.metric("Más antiguos", total_videos - week_count)
+                        
+                        with youtube_subtabs[1]:
+                            st.markdown("#### 📹 Top 10 Videos por Views")
+                            
+                            # Ordenar por views
+                            videos_sorted = sorted(
+                                videos[:20],
+                                key=lambda x: int(''.join(filter(str.isdigit, str(x.get('views', '0'))))),
+                                reverse=True
+                            )[:10]
+                            
+                            for idx, video in enumerate(videos_sorted, 1):
+                                title = video.get('title', 'N/A')
+                                channel = video.get('channel', {}).get('name', 'N/A')
+                                views = video.get('views', 'N/A')
+                                published = video.get('published_date', 'N/A')
+                                link = video.get('link', '#')
+                                
+                                st.markdown(f"""
+                                <div style="
+                                    background: white;
+                                    border: 1px solid rgba(0,0,0,0.08);
+                                    border-radius: 8px;
+                                    padding: 1rem;
+                                    margin-bottom: 0.75rem;
+                                    border-left: 3px solid #FF0000;
+                                ">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                                        <strong style="color: #1d1d1f; font-size: 1rem;">#{idx} {html.escape(title[:80])}</strong>
+                                    </div>
+                                    <div style="color: #6e6e73; font-size: 0.85rem; margin-bottom: 0.25rem;">
+                                        📺 {html.escape(channel)} | 👁️ {views} views | 📅 {published}
+                                    </div>
+                                    <a href="{link}" target="_blank" style="color: #FF0000; text-decoration: none; font-size: 0.85rem;">
+                                        Ver en YouTube →
+                                    </a>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        with youtube_subtabs[2]:
+                            st.markdown("#### 🔑 Keywords más Mencionadas")
+                            
+                            # Extraer keywords de títulos
+                            from collections import Counter
+                            all_words = []
+                            
+                            for video in videos:
+                                title = video.get('title', '').lower()
+                                words = title.split()
+                                all_words.extend(words)
+                            
+                            # Contar frecuencia
+                            word_counts = Counter(all_words)
+                            
+                            # Filtrar stopwords
+                            stopwords = {'de', 'la', 'el', 'en', 'y', 'a', 'con', 'para', 'por', 'los', 'las', 'del', 'al', 'un', 'una', 'the', 'and', 'or', 'of', 'to', 'in', 'for', 'on', 'with'}
+                            filtered = [(w, c) for w, c in word_counts.most_common(50) 
+                                        if w not in stopwords and len(w) > 3][:20]
+                            
+                            if filtered:
+                                # Mostrar como tags
+                                keywords_html = '<div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">'
+                                for word, count in filtered:
+                                    keywords_html += f"""
+                                    <span style="
+                                        background: #ffebee;
+                                        color: #FF0000;
+                                        padding: 0.5rem 1rem;
+                                        border-radius: 20px;
+                                        font-weight: 600;
+                                        font-size: 0.9rem;
+                                    ">
+                                        {html.escape(word)} ({count})
+                                    </span>
+                                    """
+                                keywords_html += '</div>'
+                                st.markdown(keywords_html, unsafe_allow_html=True)
+                            else:
+                                st.info("No se pudieron extraer keywords")
+                    else:
+                        st.info("No hay datos de YouTube disponibles para esta búsqueda")
+                
+                # ========== TAB 4: COMPARACIÓN MULTI-PLATAFORMA ==========
+                with source_tabs[3]:
+                    st.markdown("""
+                    <div style="display: inline-block; background: #5856D6; color: white; padding: 0.5rem 1rem; border-radius: 20px; margin-bottom: 1rem;">
+                        📊 Fuente: Multi-plataforma
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("### 🔀 Comparación de Plataformas")
+                    
+                    # Recopilar métricas
+                    google_queries = 0
+                    if data.get('queries') and 'related_queries' in data['queries']:
+                        top_queries = data['queries'].get('related_queries', {}).get('top', [])
+                        rising_queries = data['queries'].get('related_queries', {}).get('rising', [])
+                        google_queries = len(top_queries) + len(rising_queries)
+                    
+                    amazon_products = 0
+                    amazon_data_temp = get_amazon_products(search_query, geo)
+                    if amazon_data_temp:
+                        amazon_analysis_temp = analyze_amazon_data(amazon_data_temp, search_query)
+                        if amazon_analysis_temp:
+                            amazon_products = amazon_analysis_temp['total_products']
+                    
+                    youtube_videos = 0
+                    youtube_data_temp = get_youtube_videos(search_query, geo)
+                    if youtube_data_temp and 'video_results' in youtube_data_temp:
+                        youtube_videos = len(youtube_data_temp['video_results'])
+                    
+                    # Gráfico comparativo
+                    import plotly.graph_objects as go
+                    
+                    fig = go.Figure(data=[
+                        go.Bar(
+                            name='Volumen de Contenido',
+                            x=['Google Trends', 'Amazon', 'YouTube'],
+                            y=[google_queries, amazon_products, youtube_videos],
+                            marker_color=['#007AFF', '#FF9900', '#FF0000'],
+                            text=[google_queries, amazon_products, youtube_videos],
+                            textposition='auto',
+                        )
+                    ])
+                    
+                    fig.update_layout(
+                        title=f"Volumen de Contenido: {search_query}",
+                        yaxis_title="Cantidad de Elementos",
+                        showlegend=False,
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tabla comparativa
+                    st.markdown("#### 📋 Tabla Comparativa")
+                    
+                    comparison_data = {
+                        'Plataforma': ['🌐 Google Trends', '🛍️ Amazon', '🎥 YouTube'],
+                        'Elementos': [google_queries, amazon_products, youtube_videos],
+                        'Tipo': ['Queries relacionadas', 'Productos', 'Videos'],
+                        'Status': [
+                            '✅ Alta actividad' if google_queries > 20 else '⚠️ Media actividad' if google_queries > 5 else '❌ Baja actividad',
+                            '✅ Alta oferta' if amazon_products > 20 else '⚠️ Media oferta' if amazon_products > 5 else '❌ Baja oferta',
+                            '✅ Mucho contenido' if youtube_videos > 20 else '⚠️ Contenido medio' if youtube_videos > 5 else '❌ Poco contenido'
+                        ]
                     }
                     
-                    # Inicializar página si no existe
-                    if 'page_queries' not in st.session_state:
-                        st.session_state.page_queries = 1
+                    st.dataframe(pd.DataFrame(comparison_data), use_container_width=True)
                     
-                    display_queries_filtered(
-                        data['queries'], 
-                        selected_categories, 
-                        relevance_threshold, 
-                        qtype_map[query_type_filter],
-                        sort_by="volume",
-                        page=st.session_state.get('page_queries', 1)
-                    )
-                
-                with tab2:
-                    if data['topics'] and 'related_topics' in data['topics']:
-                        # SPRINT 3: BUBBLE CHART
-                        st.markdown("#### 🫧 Mapa Interactivo de Temas")
+                    # Insights consolidados
+                    st.markdown("#### 💡 Insights Multi-plataforma")
+                    
+                    # Determinar plataforma dominante
+                    platforms = [
+                        ('Google Trends', google_queries, '🌐'),
+                        ('Amazon', amazon_products, '🛍️'),
+                        ('YouTube', youtube_videos, '🎥')
+                    ]
+                    max_platform = max(platforms, key=lambda x: x[1])
+                    
+                    # Generar insight personalizado
+                    if max_platform[1] > 0:
+                        st.success(f"""
+                        **{max_platform[2]} Mayor actividad en {max_platform[0]}** con {max_platform[1]} elementos.
                         
-                        bubble_fig = create_bubble_chart(data['topics'], max_topics=30)
+                        **Desglose por plataforma:**
+                        - 🌐 **Google Trends**: {google_queries} queries relacionadas
+                        - 🛍️ **Amazon**: {amazon_products} productos disponibles
+                        - 🎥 **YouTube**: {youtube_videos} videos recientes
                         
-                        if bubble_fig:
-                            st.plotly_chart(bubble_fig, use_container_width=True, config={
-                                'displayModeBar': True,
-                                'displaylogo': False,
-                                'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
-                            })
-                            
-                            # Leyenda de colores
-                            st.markdown("""
-                            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap;">
-                                <span style="color: #007AFF;">● Search term</span>
-                                <span style="color: #34C759;">● Topic</span>
-                                <span style="color: #FF9500;">● Brand</span>
-                                <span style="color: #FF3B30;">● Product</span>
-                                <span style="color: #5856D6;">● Category</span>
-                                <span style="color: #FFD700;">⭐ Rising</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # Tabla tradicional en expander
-                        with st.expander("📋 Ver lista detallada de topics", expanded=False):
-                            st.markdown("#### 🔝 Top Topics")
-                            if 'top' in data['topics']['related_topics']:
-                                topics_list = []
-                                for t in data['topics']['related_topics']['top'][:20]:
-                                    topics_list.append({
-                                        'Topic': t.get('topic', {}).get('title', 'N/A'),
-                                        'Tipo': t.get('topic', {}).get('type', 'N/A'),
-                                        'Valor': t.get('value', 0)
-                                    })
-                                if topics_list:
-                                    st.dataframe(pd.DataFrame(topics_list), use_container_width=True)
+                        **Recomendación**: 
+                        {"La marca tiene fuerte presencia en búsquedas orgánicas. Considera aprovechar esta demanda." if max_platform[0] == 'Google Trends' else
+                         "Alta disponibilidad de productos. Mercado establecido con competencia." if max_platform[0] == 'Amazon' else
+                         "Mucho contenido generado. La marca tiene engagement en video."}
+                        """)
                     else:
-                        # SPRINT 4: Empty state para topics
-                        st.markdown(render_no_topics_state(), unsafe_allow_html=True)
+                        st.info("No hay suficientes datos para generar insights multi-plataforma")
+                    
+                    # Análisis de correlación
+                    st.markdown("#### 🔗 Análisis de Correlación")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Google vs Amazon**")
+                        if google_queries > 20 and amazon_products > 20:
+                            st.success("✅ Demanda y oferta correlacionadas")
+                        elif google_queries > 20 and amazon_products < 10:
+                            st.warning("⚠️ Alta demanda, poca oferta → Oportunidad")
+                        elif google_queries < 10 and amazon_products > 20:
+                            st.info("ℹ️ Poca demanda, alta oferta → Saturación")
+                        else:
+                            st.info("ℹ️ Ambos con actividad baja")
+                    
+                    with col2:
+                        st.markdown("**Google vs YouTube**")
+                        if google_queries > 20 and youtube_videos > 20:
+                            st.success("✅ Búsquedas y contenido correlacionados")
+                        elif google_queries > 20 and youtube_videos < 10:
+                            st.warning("⚠️ Demanda alta, poco contenido video")
+                        elif google_queries < 10 and youtube_videos > 20:
+                            st.info("ℹ️ Mucho contenido, pocas búsquedas")
+                        else:
+                            st.info("ℹ️ Ambos con actividad baja")
                 
-                with tab3:
-                    if data['queries'] and 'related_queries' in data['queries']:
-                        if 'rising' in data['queries']['related_queries']:
-                            st.markdown("#### 🔥 Queries en Tendencia (Rising)")
-                            rising = data['queries']['related_queries']['rising'][:15]
-                            rising_list = []
-                            for q in rising:
-                                rising_list.append({
-                                    'Query': q.get('query', ''),
-                                    'Crecimiento': q.get('value', 'Breakout')
-                                })
-                            if rising_list:
-                                st.dataframe(pd.DataFrame(rising_list), use_container_width=True)
+                # SPRINT 6: INTEREST BY REGION (fuera de tabs, datos Google)
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("#### 🗺️ Interés por Región")
+                
+                region_data = get_interest_by_region(search_query, geo, selected_channel)
+                if region_data and 'interest_by_region' in region_data:
+                    region_map = create_region_map(region_data, country_name)
+                    if region_map:
+                        st.plotly_chart(region_map, use_container_width=True)
+                    
+                    # Tabla top regiones
+                    regions = region_data['interest_by_region']
+                    top_5 = sorted(regions, key=lambda x: x.get('extracted_value', 0), reverse=True)[:5]
+                    
+                    st.markdown("**🏆 Top 5 Regiones:**")
+                    cols_regions = st.columns(5)
+                    for idx, region in enumerate(top_5):
+                        with cols_regions[idx]:
+                            st.metric(
+                                region['location'],
+                                f"{region.get('extracted_value', 0)}/100"
+                            )
+                else:
+                    st.info("No hay datos regionales disponibles")
+                
+                # SPRINT 6: NOTICIAS RELACIONADAS
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("#### 📰 Noticias Recientes")
+                
+                news_data = get_related_news(search_query)
+                if news_data and 'news' in news_data:
+                    news_items = news_data['news'][:5]  # Top 5 noticias
+                    
+                    if news_items:
+                        for news in news_items:
+                            st.markdown(render_news_card(news), unsafe_allow_html=True)
                     else:
-                        st.info("No hay datos de tendencias")
+                        st.info("No hay noticias recientes disponibles")
+                else:
+                    st.info("No hay noticias disponibles")
+                
+                
+        except Exception as e:
+            st.error(f"❌ Error inesperado al procesar el análisis: {str(e)}")
+            st.info("💡 Intenta de nuevo o contacta soporte si el error persiste.")
     
     # SPRINT 4: Welcome empty state
     else:
+        # Si no hay búsqueda, mostrar welcome
+        if not search_query or not search_button:
+            st.markdown(render_empty_state(
+                icon="🚀",
+                title="Bienvenido a Trend Hunter Pro",
+                message="Introduce el nombre de una marca tecnológica para comenzar el análisis de tendencias de búsqueda. Descubre insights de múltiples países simultáneamente.",
+                suggestions=["logitech", "razer", "corsair", "keychron", "arozzi", "steelseries"]
+            ), unsafe_allow_html=True)
+
+
+# ================================
+# SPRINT 5: COMPARADOR DE MARCAS
+# ================================
+
+elif search_mode == "⚖️ Comparador":
+    st.markdown("#### ⚖️ Comparar Marcas")
+    st.markdown("Analiza y compara hasta 4 marcas simultáneamente")
+    
+    # Inputs para marcas
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    
+    with col_m1:
+        marca1 = st.text_input("Marca 1", placeholder="Ej: Logitech", key="comp_m1")
+    with col_m2:
+        marca2 = st.text_input("Marca 2", placeholder="Ej: Razer", key="comp_m2")
+    with col_m3:
+        marca3 = st.text_input("Marca 3 (opcional)", placeholder="Ej: Corsair", key="comp_m3")
+    with col_m4:
+        marca4 = st.text_input("Marca 4 (opcional)", placeholder="Ej: SteelSeries", key="comp_m4")
+    
+    # Filtrar marcas no vacías
+    brands_to_compare = [b.strip() for b in [marca1, marca2, marca3, marca4] if b and b.strip()]
+    
+    # SPRINT 5: Selector de canal para comparador con estado (BUGFIX)
+    st.markdown("**📡 Canal de Búsqueda**")
+    channel_cols_comp = st.columns(5)
+    
+    for idx, (channel_key, channel_data) in enumerate(CHANNELS.items()):
+        with channel_cols_comp[idx]:
+            is_active = st.session_state.selected_channel_comp == channel_key
+            button_type = "primary" if is_active else "secondary"
+            
+            if st.button(
+                f"{channel_data['icon']} {channel_data['name']}", 
+                key=f"channel_comp_{channel_key}",
+                use_container_width=True,
+                help=channel_data['description'],
+                type=button_type
+            ):
+                st.session_state.selected_channel_comp = channel_key
+                st.rerun()
+    
+    selected_channel_comp = st.session_state.selected_channel_comp
+    st.info(f"**Canal activo:** {CHANNELS[selected_channel_comp]['icon']} {CHANNELS[selected_channel_comp]['name']}")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("⚖️ Comparar Marcas", type="primary", use_container_width=True):
+        # BUGFIX: Validación mejorada
+        if len(brands_to_compare) < 2:
+            st.error("❌ Debes introducir al menos 2 marcas para comparar")
+        elif len(brands_to_compare) > 4:
+            st.error("❌ Máximo 4 marcas permitidas")
+        elif not selected_countries:
+            st.error("❌ Selecciona al menos un país")
+        else:
+            try:
+                # Mostrar marcas a comparar
+                st.markdown(f"""
+                <div class="glass-card">
+                    <h2 style="margin: 0; color: #1d1d1f;">⚖️ Comparando {len(brands_to_compare)} marcas</h2>
+                    <p style="color: #6e6e73; margin-top: 0.5rem;">{' vs '.join(brands_to_compare)}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Ejecutar comparación con spinner
+                with st.spinner(f"🔍 Comparando {len(brands_to_compare)} marcas en {len(selected_countries)} país(es)..."):
+                    comparison_results = compare_brands(
+                        brands_to_compare, 
+                        selected_countries, 
+                        selected_categories, 
+                        relevance_threshold,
+                        selected_channel_comp
+                    )
+                
+                # Verificar resultados
+                if not comparison_results:
+                    st.error("❌ No se pudieron obtener resultados de comparación")
+                    st.stop()
+                
+                # Mostrar resultados por país
+                for geo in selected_countries:
+                    country_name = f"{COUNTRIES[geo]['flag']} {COUNTRIES[geo]['name']}"
+                    
+                    with st.expander(f"**{country_name}**", expanded=True):
+                        # Gráfico comparativo
+                        st.markdown("#### 📊 Comparación Temporal")
+                        
+                        comparison_chart = create_comparison_chart(comparison_results, geo)
+                        st.plotly_chart(comparison_chart, use_container_width=True)
+                        
+                        # Tabla resumen
+                        st.markdown("#### 📈 Resumen Comparativo")
+                        summary_df = render_comparison_summary(comparison_results, geo)
+                    
+                    if summary_df is not None:
+                        # Styling de la tabla
+                        st.dataframe(
+                            summary_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                        
+                        # Ganador
+                        avg_col = 'Promedio 5Y'
+                        if avg_col in summary_df.columns:
+                            summary_df['avg_numeric'] = summary_df[avg_col].str.replace('/100', '').astype(float)
+                            winner_idx = summary_df['avg_numeric'].idxmax()
+                            winner = summary_df.loc[winner_idx, 'Marca']
+                            winner_avg = summary_df.loc[winner_idx, avg_col]
+                            
+                            st.success(f"🏆 **Líder:** {winner} con {winner_avg}")
+                    
+                    st.markdown("<hr>", unsafe_allow_html=True)
+                    
+                    # Detalles individuales (colapsado)
+                    for brand in brands_to_compare:
+                        with st.expander(f"📊 Detalles de {brand}", expanded=False):
+                            if brand in comparison_results and geo in comparison_results[brand]:
+                                data = comparison_results[brand][geo]
+                                
+                                # Métricas
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    val = f"{data['month_change']:.1f}%" if data['month_change'] else "N/A"
+                                    st.metric("Último Mes", val)
+                                with col2:
+                                    val = f"{data['quarter_change']:.1f}%" if data['quarter_change'] else "N/A"
+                                    st.metric("Trimestre", val)
+                                with col3:
+                                    val = f"{data['year_change']:.1f}%" if data['year_change'] else "N/A"
+                                    st.metric("Año", val)
+                                with col4:
+                                    val = f"{data['avg_value']:.0f}/100" if data['avg_value'] else "N/A"
+                                    st.metric("Promedio 5Y", val)
+            
+            except Exception as e:
+                st.error(f"❌ Error al comparar marcas: {str(e)}")
+                st.info("💡 Verifica los nombres de las marcas e intenta nuevamente")
+
+# ================================
+# SPRINT 5: HISTÓRICO DE ANÁLISIS
+# ================================
+
+elif search_mode == "📈 Histórico":
+    st.markdown("#### 📈 Histórico de Análisis")
+    st.markdown("Visualiza y analiza la evolución de tus búsquedas guardadas")
+    
+    # Cargar histórico
+    history = load_analysis_history()
+    
+    if not history:
         st.markdown(render_empty_state(
-            icon="🚀",
-            title="Bienvenido a Trend Hunter Pro",
-            message="Introduce el nombre de una marca tecnológica para comenzar el análisis de tendencias de búsqueda. Descubre insights de múltiples países simultáneamente.",
-            suggestions=["logitech", "razer", "corsair", "keychron", "arozzi", "steelseries"]
+            icon="📭",
+            title="Sin histórico disponible",
+            message="Realiza un análisis y guárdalo usando el botón '💾 Guardar en Histórico' para comenzar a ver evoluciones.",
+            suggestions=["logitech", "razer", "corsair"]
         ), unsafe_allow_html=True)
+    else:
+        # Mostrar total de registros
+        st.info(f"📊 **{len(history)} análisis guardados** (últimos 100)")
+        
+        # Tabs: Tabla completa vs Evolución
+        tab_table, tab_evolution = st.tabs(["📋 Tabla Completa", "📈 Evolución"])
+        
+        with tab_table:
+            st.markdown("#### 📋 Histórico Completo")
+            
+            # Filtros
+            col_filter1, col_filter2, col_filter3 = st.columns(3)
+            
+            with col_filter1:
+                # Obtener marcas únicas
+                unique_brands = sorted(list(set([r["brand"] for r in history])))
+                filter_brand = st.selectbox(
+                    "Filtrar por marca",
+                    ["Todas"] + unique_brands,
+                    key="hist_filter_brand"
+                )
+            
+            with col_filter2:
+                # Obtener países únicos
+                unique_countries = sorted(list(set([r.get("country_name", "N/A") for r in history])))
+                filter_country = st.selectbox(
+                    "Filtrar por país",
+                    ["Todos"] + unique_countries,
+                    key="hist_filter_country"
+                )
+            
+            with col_filter3:
+                # Obtener canales únicos
+                unique_channels = sorted(list(set([r.get("channel_name", "N/A") for r in history])))
+                filter_channel = st.selectbox(
+                    "Filtrar por canal",
+                    ["Todos"] + unique_channels,
+                    key="hist_filter_channel"
+                )
+            
+            # Aplicar filtros
+            filtered_history = history
+            if filter_brand != "Todas":
+                filtered_history = [r for r in filtered_history if r["brand"] == filter_brand]
+            if filter_country != "Todos":
+                filtered_history = [r for r in filtered_history if r.get("country_name") == filter_country]
+            if filter_channel != "Todos":
+                filtered_history = [r for r in filtered_history if r.get("channel_name") == filter_channel]
+            
+            # Mostrar tabla
+            if filtered_history:
+                st.markdown(f"**Mostrando {len(filtered_history)} registros**")
+                history_table = render_history_table(filtered_history, limit=50)
+                if history_table is not None:
+                    st.dataframe(history_table, use_container_width=True, hide_index=True)
+            else:
+                st.warning("No hay registros con esos filtros")
+        
+        with tab_evolution:
+            st.markdown("#### 📈 Evolución de Marca")
+            
+            # Selector de marca y canal para evolución
+            col_evo1, col_evo2 = st.columns(2)
+            
+            with col_evo1:
+                unique_brands_evo = sorted(list(set([r["brand"] for r in history])))
+                selected_brand_evo = st.selectbox(
+                    "Selecciona marca",
+                    unique_brands_evo,
+                    key="evo_brand"
+                )
+            
+            with col_evo2:
+                unique_channels_evo = sorted(list(set([r.get("channel", "web") for r in history])))
+                selected_channel_evo = st.selectbox(
+                    "Selecciona canal",
+                    unique_channels_evo,
+                    format_func=lambda x: f"{CHANNELS.get(x, {}).get('icon', '')} {CHANNELS.get(x, {}).get('name', x)}",
+                    key="evo_channel"
+                )
+            
+            # Obtener evolución
+            if selected_brand_evo:
+                evolution = get_brand_evolution(selected_brand_evo, selected_channel_evo)
+                
+                if not evolution:
+                    st.warning(f"No hay datos históricos para '{selected_brand_evo}' en {CHANNELS.get(selected_channel_evo, {}).get('name', selected_channel_evo)}")
+                else:
+                    st.success(f"📊 {len(evolution)} análisis encontrados")
+                    
+                    # Selector de métrica
+                    metric_to_show = st.selectbox(
+                        "Métrica a visualizar",
+                        ["avg_value", "month_change", "quarter_change", "year_change"],
+                        format_func=lambda x: {
+                            "avg_value": "Promedio 5 Años",
+                            "month_change": "Cambio Mensual",
+                            "quarter_change": "Cambio Trimestral",
+                            "year_change": "Cambio Anual"
+                        }[x],
+                        key="evo_metric"
+                    )
+                    
+                    # Crear y mostrar gráfico
+                    evo_chart = create_evolution_chart(evolution, metric_to_show)
+                    if evo_chart:
+                        st.plotly_chart(evo_chart, use_container_width=True)
+                    
+                    # Tabla de evolución
+                    st.markdown("**📋 Detalle de evolución:**")
+                    evo_table = render_history_table(evolution, limit=20)
+                    if evo_table is not None:
+                        st.dataframe(evo_table, use_container_width=True, hide_index=True)
 
 elif search_mode == "🔗 URL":
     st.markdown("#### 🔗 Extraer Marca desde URL")
@@ -3111,16 +5761,32 @@ else:  # CSV
     uploaded_file = st.file_uploader("📁 Sube tu CSV", type=['csv'])
     
     if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.success(f"✅ **{len(df)} marcas** cargadas")
+        # Try multiple encodings to handle different CSV formats
+        encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'windows-1252']
+        df = None
+        encoding_used = None
         
-        if 'Brand' in df.columns:
-            selected_brand = st.selectbox("Selecciona marca:", df['Brand'].tolist())
-            if st.button("🔍 Analizar", type="primary"):
-                # Misma lógica que búsqueda manual
-                pass
+        for encoding in encodings_to_try:
+            try:
+                uploaded_file.seek(0)  # Reset file pointer
+                df = pd.read_csv(uploaded_file, encoding=encoding)
+                encoding_used = encoding
+                break
+            except (UnicodeDecodeError, Exception):
+                continue
+        
+        if df is not None:
+            st.success(f"✅ **{len(df)} marcas** cargadas (encoding: {encoding_used})")
+            
+            if 'Brand' in df.columns:
+                selected_brand = st.selectbox("Selecciona marca:", df['Brand'].tolist())
+                if st.button("🔍 Analizar", type="primary"):
+                    # Misma lógica que búsqueda manual
+                    pass
+            else:
+                st.error("❌ El CSV debe tener columna 'Brand'")
         else:
-            st.error("❌ El CSV debe tener columna 'Brand'")
+            st.error(f"❌ No se pudo leer el archivo CSV. Intenta guardarlo como UTF-8.")
 
 # FOOTER
 st.markdown("<br><br>", unsafe_allow_html=True)

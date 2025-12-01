@@ -1,0 +1,32 @@
+# ================================
+# STREAMLIT CONFIG - TREND HUNTER PRO
+# Version: 8.2 Production
+# ================================
+
+[theme]
+primaryColor = "#0071e3"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#1d1d1f"
+textColor = "#f5f5f7"
+font = "sans serif"
+
+[server]
+# Performance optimizations
+maxUploadSize = 50
+enableCORS = false
+enableXsrfProtection = true
+
+# Session config
+runOnSave = true
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+
+[client]
+# Cache config
+caching = true
+toolbarMode = "minimal"
+showErrorDetails = false
