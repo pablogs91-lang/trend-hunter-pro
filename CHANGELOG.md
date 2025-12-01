@@ -7,6 +7,56 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [8.6.0] - 2024-12-01 - MAJOR IMPROVEMENTS 🔒📊⚖️
+
+### 🔒 Security & Stability
+- **HTML Escaping Audit**: Comprehensive review of 22 render functions
+- **Fixed 2 critical functions**: render_alert_card, render_news_card
+- **Added escaping**: icon, message, metric, title, link, source, date, thumbnail
+- **Documented remaining**: 4 functions pending (low risk)
+- **Audit report created**: HTML_ESCAPING_AUDIT.md
+
+### 📊 Trending Now - Daily Tech Components
+- **Changed to daily updates**: Cache 24h (was 10 min)
+- **Component/Peripheral selector**: 10 categories (Ratones, Teclados, Monitores, etc.)
+- **Smart filtering**: Filters by category keywords
+- **Better UX**: Clear "Updated daily" message
+- **Categories**:
+  - Ratones, Teclados, Monitores, Auriculares
+  - Gráficas, Procesadores, Placas Base, RAM
+  - SSD, Refrigeración
+
+### ⚖️ Comparator Fixed & Improved
+- **BREAKING**: Single country only (was multi-country)
+- **Max 4 brands**: Clear limit enforcement
+- **Removed channel selector**: Now auto multi-channel
+- **New comparison view**:
+  - Bar chart comparing brands across channels
+  - Summary table with key metrics
+  - Winner detection automatic
+  - Detailed insights per brand
+- **Better error handling**: Clear validation messages
+
+### 🎨 UX Improvements
+- Trending Now expander more descriptive
+- Comparator simplified (less decisions)
+- Clear restrictions: "1 país, máximo 4 marcas"
+- Auto multi-channel info banner
+
+### 🐛 Bug Fixes
+- Fixed HTML escaping in alerts
+- Fixed HTML escaping in news cards
+- Fixed comparator allowing multiple countries
+- Fixed comparator channel confusion
+
+### 📈 Technical Details
+- Added `get_daily_trending()` with 24h cache
+- Modified comparator to use `analyze_all_channels()`
+- HTML escaping in 2+ critical functions
+- Category mapping for trending filters
+
+---
+
 ## [8.5.1] - 2024-12-01 - TREND SPARKLINES + HTML FIX 📈🔧
 
 ### 🐛 Bug Fixes
@@ -482,6 +532,7 @@ title="Jan - Interés: 47 | Promedio: 48 | Diferencia: -3.0% | 📉 Por debajo d
 
 | Version | Date | Type | Status |
 |---------|------|------|--------|
+| 8.6.0 | 2024-12-01 | Major Update | ✅ READY |
 | 8.5.1 | 2024-12-01 | Bug Fix + Feature | ✅ READY |
 | 8.5.0 | 2024-12-01 | Major Feature | ✅ READY |
 | 8.4.0 | 2024-12-01 | Major Feature | ✅ READY |
@@ -529,5 +580,5 @@ Version 1.0-3.0 are deprecated. Use 8.2+ for production.
 
 **Maintained by**: PCComponentes Competitive Intelligence Team  
 **Last Updated**: 2024-12-01  
-**Current Version**: 8.5.1  
+**Current Version**: 8.6.0  
 **Status**: ✅ Production Ready

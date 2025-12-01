@@ -3052,7 +3052,12 @@ def render_alert_card(alert):
     
     bg_color = severity_colors.get(alert['severity'], '#6e6e73')
     
-    html = f"""
+    # Escapar contenido del usuario
+    safe_icon = html.escape(str(alert.get('icon', '')))
+    safe_message = html.escape(str(alert.get('message', '')))
+    safe_metric = html.escape(str(alert.get('metric', '')).replace('_', ' ').title())
+    
+    html_content = f"""
     <div style="
         background: linear-gradient(135deg, {bg_color}15 0%, {bg_color}05 100%);
         border-left: 4px solid {bg_color};
@@ -3062,21 +3067,21 @@ def render_alert_card(alert):
         animation: slideInRight 0.4s ease;
     ">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <span style="font-size: 1.5rem;">{alert['icon']}</span>
+            <span style="font-size: 1.5rem;">{safe_icon}</span>
             <div style="flex: 1;">
                 <div style="color: #1d1d1f; font-weight: 600; margin-bottom: 0.25rem;">
-                    {alert['message']}
+                    {safe_message}
                 </div>
                 <div style="color: #6e6e73; font-size: 0.85rem;">
-                    Métrica: {alert['metric'].replace('_', ' ').title()} | 
-                    Valor: {alert['value']:.1f}
+                    Métrica: {safe_metric} | 
+                    Valor: {alert.get('value', 0):.1f}
                 </div>
             </div>
         </div>
     </div>
     """
     
-    return html
+    return html_content
 
 def render_comparison_card(comparison):
     """
@@ -3212,7 +3217,17 @@ def render_news_card(news_item):
     date = news_item.get('date', '')
     thumbnail = news_item.get('thumbnail', '')
     
-    html = f"""
+    # Escapar contenido del usuario
+    safe_title = html.escape(str(title))
+    safe_link = html.escape(str(link))
+    safe_source = html.escape(str(source))
+    safe_date = html.escape(str(date)) if date else ''
+    safe_thumbnail = html.escape(str(thumbnail)) if thumbnail else ''
+    
+    thumbnail_html = f'<img src="{safe_thumbnail}" alt="Trending search thumbnail" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;">' if thumbnail else ''
+    date_html = f' • {safe_date}' if date else ''
+    
+    html_content = f"""
     <div style="
         background: white;
         border: 1px solid rgba(0,0,0,0.08);
@@ -3226,19 +3241,19 @@ def render_news_card(news_item):
        onfocus="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.1)';"
        onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none';">
         <div style="display: flex; gap: 1rem;">
-            {'<img src="' + thumbnail + '" alt="Trending search thumbnail" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px;">' if thumbnail else ''}
+            {thumbnail_html}
             <div style="flex: 1;">
-                <a href="{link}" target="_blank" style="
+                <a href="{safe_link}" target="_blank" style="
                     color: #1d1d1f;
                     font-weight: 600;
                     font-size: 0.95rem;
                     text-decoration: none;
                     display: block;
                     margin-bottom: 0.5rem;
-                ">{title}</a>
+                ">{safe_title}</a>
                 <div style="color: #6e6e73; font-size: 0.85rem;">
-                    <span style="font-weight: 500;">{source}</span>
-                    {' • ' + date if date else ''}
+                    <span style="font-weight: 500;">{safe_source}</span>
+                    {date_html}
                 </div>
             </div>
         </div>
@@ -5109,11 +5124,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================================
-# SPRINT 6: TRENDING NOW WIDGET
+# SPRINT 6: TRENDING NOW WIDGET - DAILY TECH COMPONENTS
 # ================================
 
-# Añadir expander de trending now
-with st.expander("🔥 **Tendencias del Momento** (Actualizado cada 10 min)", expanded=False):
+# Añadir expander de trending now (actualizado una vez al día)
+with st.expander("🔥 **Tendencias del Momento - Componentes & Periféricos** (Actualizado diariamente)", expanded=False):
     col_trend1, col_trend2 = st.columns([1, 3])
     
     with col_trend1:
@@ -5124,28 +5139,67 @@ with st.expander("🔥 **Tendencias del Momento** (Actualizado cada 10 min)", ex
             key="trending_geo"
         )
         
-        trending_hours = st.selectbox(
-            "Período",
-            [1, 4, 24],
-            format_func=lambda x: f"Últimas {x}h",
-            index=1,
-            key="trending_hours"
+        # Selector de categoría (solo componentes y periféricos)
+        trending_category = st.selectbox(
+            "Categoría",
+            ["Ratones", "Teclados", "Monitores", "Auriculares", "Gráficas", "Procesadores", 
+             "Placas Base", "RAM", "SSD", "Refrigeración"],
+            key="trending_category"
         )
     
     with col_trend2:
-        trending_data = get_trending_now(trending_geo, trending_hours)
-        
-        if trending_data and 'trending_searches' in trending_data:
-            trends = trending_data['trending_searches'][:10]
+        # Usar cache de 24 horas para actualización diaria
+        @st.cache_data(ttl=86400, show_spinner=False)  # 86400 segundos = 24 horas
+        def get_daily_trending(geo, category):
+            """
+            Obtiene tendencias diarias para categoría específica.
+            Cache de 24h = actualización una vez al día.
+            """
+            # Mapeo de categorías a términos de búsqueda
+            category_terms = {
+                "Ratones": "gaming mouse",
+                "Teclados": "keyboard",
+                "Monitores": "monitor",
+                "Auriculares": "headset",
+                "Gráficas": "graphics card GPU",
+                "Procesadores": "processor CPU",
+                "Placas Base": "motherboard",
+                "RAM": "RAM memory",
+                "SSD": "SSD storage",
+                "Refrigeración": "cooling fan"
+            }
             
-            if trends:
-                st.markdown("**🔥 Top Tendencias:**")
-                for trend in trends:
-                    st.markdown(render_trending_item(trend), unsafe_allow_html=True)
-            else:
-                st.info("No hay tendencias disponibles")
+            search_term = category_terms.get(category, "gaming")
+            
+            # Obtener tendencias de 24h (último día)
+            trending_data = get_trending_now(geo, hours=24)
+            
+            if trending_data and 'trending_searches' in trending_data:
+                # Filtrar por categoría (keywords relacionados)
+                filtered_trends = []
+                for trend in trending_data['trending_searches']:
+                    query = trend.get('query', '').lower()
+                    # Buscar si el query está relacionado con la categoría
+                    keywords = search_term.lower().split()
+                    if any(keyword in query for keyword in keywords):
+                        filtered_trends.append(trend)
+                
+                # Si hay pocos resultados, mostrar todos
+                if len(filtered_trends) < 5:
+                    return trending_data['trending_searches'][:10]
+                return filtered_trends[:10]
+            
+            return []
+        
+        st.markdown(f"**🔍 Tendencias en {trending_category}** (Últimas 24h)")
+        
+        trends = get_daily_trending(trending_geo, trending_category)
+        
+        if trends:
+            for trend in trends:
+                st.markdown(render_trending_item(trend), unsafe_allow_html=True)
         else:
-            st.info("No se pudieron cargar las tendencias")
+            st.info(f"No hay tendencias disponibles para {trending_category} hoy")
 
 # ================================
 # FLOATING FOOTER TOOLBAR
@@ -6034,9 +6088,23 @@ if search_mode == "🔍 Manual":
 
 elif search_mode == "⚖️ Comparador":
     st.markdown("#### ⚖️ Comparar Marcas")
-    st.markdown("Analiza y compara hasta 4 marcas simultáneamente")
+    st.markdown("Compara hasta **4 marcas** en **1 país** simultáneamente")
     
-    # Inputs para marcas
+    # RESTRICCIÓN: Solo 1 país para comparador
+    col_country, col_spacer = st.columns([2, 8])
+    with col_country:
+        comparator_country = st.selectbox(
+            "🌍 País",
+            options=list(COUNTRIES.keys()),
+            index=0,  # Default ES
+            format_func=lambda x: f"{COUNTRIES[x]['flag']} {COUNTRIES[x]['name']}",
+            key="comparator_country",
+            help="Solo se puede comparar en 1 país a la vez"
+        )
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Inputs para marcas (máximo 4)
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
     
     with col_m1:
@@ -6051,27 +6119,8 @@ elif search_mode == "⚖️ Comparador":
     # Filtrar marcas no vacías
     brands_to_compare = [b.strip() for b in [marca1, marca2, marca3, marca4] if b and b.strip()]
     
-    # SPRINT 5: Selector de canal para comparador con estado (BUGFIX)
-    st.markdown("**📡 Canal de Búsqueda**")
-    channel_cols_comp = st.columns(5)
-    
-    for idx, (channel_key, channel_data) in enumerate(CHANNELS.items()):
-        with channel_cols_comp[idx]:
-            is_active = st.session_state.selected_channel_comp == channel_key
-            button_type = "primary" if is_active else "secondary"
-            
-            if st.button(
-                f"{channel_data['icon']} {channel_data['name']}", 
-                key=f"channel_comp_{channel_key}",
-                use_container_width=True,
-                help=channel_data['description'],
-                type=button_type
-            ):
-                st.session_state.selected_channel_comp = channel_key
-                st.rerun()
-    
-    selected_channel_comp = st.session_state.selected_channel_comp
-    st.info(f"**Canal activo:** {CHANNELS[selected_channel_comp]['icon']} {CHANNELS[selected_channel_comp]['name']}")
+    # INFO: Análisis multi-canal automático
+    st.info("🌐 **Análisis automático en todos los canales**: Web + Images + News + YouTube + Shopping")
     
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -6081,69 +6130,154 @@ elif search_mode == "⚖️ Comparador":
             st.error("❌ Debes introducir al menos 2 marcas para comparar")
         elif len(brands_to_compare) > 4:
             st.error("❌ Máximo 4 marcas permitidas")
-        elif not selected_countries:
-            st.error("❌ Selecciona al menos un país")
         else:
             try:
                 # Mostrar marcas a comparar
+                country_name = f"{COUNTRIES[comparator_country]['flag']} {COUNTRIES[comparator_country]['name']}"
+                
                 st.markdown(f"""
                 <div class="glass-card">
                     <h2 style="margin: 0; color: #1d1d1f;">⚖️ Comparando {len(brands_to_compare)} marcas</h2>
-                    <p style="color: #6e6e73; margin-top: 0.5rem;">{' vs '.join(brands_to_compare)}</p>
+                    <p style="color: #6e6e73; margin-top: 0.5rem;">{' vs '.join(brands_to_compare)} en {country_name}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Ejecutar comparación con spinner
-                with st.spinner(f"🔍 Comparando {len(brands_to_compare)} marcas en {len(selected_countries)} país(es)..."):
-                    comparison_results = compare_brands(
-                        brands_to_compare, 
-                        selected_countries, 
-                        selected_categories, 
-                        relevance_threshold,
-                        selected_channel_comp
-                    )
+                # Ejecutar comparación con spinner (multi-canal automático)
+                with st.spinner(f"🔍 Analizando {len(brands_to_compare)} marcas en todos los canales..."):
+                    comparison_results = {}
+                    
+                    # Comparar cada marca con análisis multi-canal
+                    for brand in brands_to_compare:
+                        brand_results = analyze_all_channels(
+                            brand,
+                            [comparator_country],  # Solo 1 país
+                            selected_categories,
+                            relevance_threshold
+                        )
+                        comparison_results[brand] = brand_results
                 
                 # Verificar resultados
                 if not comparison_results:
                     st.error("❌ No se pudieron obtener resultados de comparación")
                     st.stop()
                 
-                # Mostrar resultados por país
-                for geo in selected_countries:
-                    country_name = f"{COUNTRIES[geo]['flag']} {COUNTRIES[geo]['name']}"
+                # VISTA COMPARATIVA
+                st.markdown(f"## 📊 Resultados - {country_name}")
+                
+                # ========== GRÁFICO COMPARATIVO DE VOLUMEN ==========
+                st.markdown("### 📈 Comparación de Interés por Canal")
+                
+                import plotly.graph_objects as go
+                
+                # Preparar datos para gráfico
+                channels_list = ['web', 'images', 'news', 'youtube', 'shopping']
+                channel_names = {
+                    'web': 'Web',
+                    'images': 'Images',
+                    'news': 'News',
+                    'youtube': 'YouTube',
+                    'shopping': 'Shopping'
+                }
+                
+                fig = go.Figure()
+                
+                for brand in brands_to_compare:
+                    brand_data = comparison_results[brand][comparator_country]
+                    volumes = []
                     
-                    with st.expander(f"**{country_name}**", expanded=True):
-                        # Gráfico comparativo
-                        st.markdown("#### 📊 Comparación Temporal")
-                        
-                        comparison_chart = create_comparison_chart(comparison_results, geo)
-                        st.plotly_chart(comparison_chart, use_container_width=True)
-                        
-                        # Tabla resumen
-                        st.markdown("#### 📈 Resumen Comparativo")
-                        summary_df = render_comparison_summary(comparison_results, geo)
+                    for channel_key in channels_list:
+                        channel_info = brand_data['channels'].get(channel_key, {})
+                        avg_value = channel_info.get('avg_value', 0)
+                        volumes.append(avg_value)
                     
-                    if summary_df is not None:
-                        # Styling de la tabla
-                        st.dataframe(
-                            summary_df,
-                            use_container_width=True,
-                            hide_index=True
-                        )
+                    fig.add_trace(go.Bar(
+                        name=brand,
+                        x=[channel_names[ch] for ch in channels_list],
+                        y=volumes,
+                        text=volumes,
+                        textposition='auto',
+                    ))
+                
+                fig.update_layout(
+                    title=f"Interés por Canal - Comparación de Marcas",
+                    xaxis_title="Canal",
+                    yaxis_title="Interés Promedio (0-100)",
+                    barmode='group',
+                    height=500,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # ========== TABLA RESUMEN ==========
+                st.markdown("### 📊 Tabla Comparativa")
+                
+                summary_data = []
+                for brand in brands_to_compare:
+                    brand_data = comparison_results[brand][comparator_country]
+                    consolidated = brand_data['consolidated']
+                    
+                    # Calcular promedios
+                    total_volume = sum(consolidated['channel_volumes'].values())
+                    avg_volume = total_volume / len(consolidated['channel_volumes']) if consolidated['channel_volumes'] else 0
+                    
+                    dominant_channel = consolidated.get('dominant_channel', {})
+                    
+                    summary_data.append({
+                        'Marca': brand,
+                        'Canales Activos': f"{consolidated['channels_with_data']}/5",
+                        'Canal Dominante': dominant_channel.get('name', 'N/A') if dominant_channel else 'N/A',
+                        'Volumen Promedio': f"{avg_volume:.1f}",
+                        'Total Queries': len(consolidated['all_queries']),
+                        'Total Topics': len(consolidated['all_topics'])
+                    })
+                
+                summary_df = pd.DataFrame(summary_data)
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                
+                # ========== GANADOR ==========
+                summary_df['avg_numeric'] = summary_df['Volumen Promedio'].astype(float)
+                winner_idx = summary_df['avg_numeric'].idxmax()
+                winner = summary_df.loc[winner_idx, 'Marca']
+                winner_avg = summary_df.loc[winner_idx, 'Volumen Promedio']
+                
+                st.success(f"🏆 **Líder en {country_name}:** {winner} con {winner_avg} de interés promedio")
+                
+                # ========== DETALLES POR MARCA ==========
+                st.markdown("### 📑 Detalles por Marca")
+                
+                for brand in brands_to_compare:
+                    with st.expander(f"**{brand}** - Análisis Detallado", expanded=False):
+                        brand_data = comparison_results[brand][comparator_country]
                         
-                        # Ganador
-                        avg_col = 'Promedio 5Y'
-                        if avg_col in summary_df.columns:
-                            summary_df['avg_numeric'] = summary_df[avg_col].str.replace('/100', '').astype(float)
-                            winner_idx = summary_df['avg_numeric'].idxmax()
-                            winner = summary_df.loc[winner_idx, 'Marca']
-                            winner_avg = summary_df.loc[winner_idx, avg_col]
+                        # Mostrar insights
+                        if brand_data['consolidated']['insights']:
+                            st.markdown("**💡 Insights:**")
+                            for insight in brand_data['consolidated']['insights']:
+                                st.markdown(f"- {insight['icon']} {insight['title']}: {insight['description']}")
+                        
+                        # Top 5 queries consolidadas
+                        if brand_data['consolidated']['all_queries']:
+                            st.markdown("**🔍 Top Queries (todas las fuentes):**")
+                            top_queries = sorted(
+                                brand_data['consolidated']['all_queries'],
+                                key=lambda x: x['value'],
+                                reverse=True
+                            )[:5]
                             
-                            st.success(f"🏆 **Líder:** {winner} con {winner_avg}")
-                    
-                    st.markdown("<hr>", unsafe_allow_html=True)
-                    
-                    # Detalles individuales (colapsado)
+                            for q in top_queries:
+                                st.markdown(f"- **{q['query']}** (Valor: {q['value']}, Canal: {q['channel_name']})")
+                
+            except Exception as e:
+                st.error(f"❌ Error en la comparación: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
                     for brand in brands_to_compare:
                         with st.expander(f"📊 Detalles de {brand}", expanded=False):
                             if brand in comparison_results and geo in comparison_results[brand]:
