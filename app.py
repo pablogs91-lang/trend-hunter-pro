@@ -5124,7 +5124,10 @@ st.markdown("""
 # ================================
 
 # Añadir expander de trending now (actualizado una vez al día)
-with st.expander("🔥 **Tendencias del Momento - Componentes & Periféricos** (Actualizado diariamente)", expanded=False):
+with st.expander("🔥 **Tendencias del Momento - Componentes & Periféricos** (Feature deshabilitada para ahorro)", expanded=False):
+    # ⚠️ FEATURE DESHABILITADA PARA AHORRO DE API CALLS
+    st.warning("⚠️ **Feature deshabilitada temporalmente** para optimizar costos de API. Los datos mostrados son ejemplos de demostración.")
+    
     col_trend1, col_trend2 = st.columns([1, 3])
     
     with col_trend1:
@@ -5144,58 +5147,125 @@ with st.expander("🔥 **Tendencias del Momento - Componentes & Periféricos** (
         )
     
     with col_trend2:
-        # Usar cache de 24 horas para actualización diaria
-        @st.cache_data(ttl=86400, show_spinner=False)  # 86400 segundos = 24 horas
-        def get_daily_trending(geo, category):
-            """
-            Obtiene tendencias diarias para categoría específica.
-            Cache de 24h = actualización una vez al día.
-            """
-            # Mapeo de categorías a términos de búsqueda
-            category_terms = {
-                "Ratones": "gaming mouse",
-                "Teclados": "keyboard",
-                "Monitores": "monitor",
-                "Auriculares": "headset",
-                "Gráficas": "graphics card GPU",
-                "Procesadores": "processor CPU",
-                "Placas Base": "motherboard",
-                "RAM": "RAM memory",
-                "SSD": "SSD storage",
-                "Refrigeración": "cooling fan"
-            }
-            
-            search_term = category_terms.get(category, "gaming")
-            
-            # Obtener tendencias de 24h (último día)
-            trending_data = get_trending_now(geo, hours=24)
-            
-            if trending_data and 'trending_searches' in trending_data:
-                # Filtrar por categoría (keywords relacionados)
-                filtered_trends = []
-                for trend in trending_data['trending_searches']:
-                    query = trend.get('query', '').lower()
-                    # Buscar si el query está relacionado con la categoría
-                    keywords = search_term.lower().split()
-                    if any(keyword in query for keyword in keywords):
-                        filtered_trends.append(trend)
-                
-                # Si hay pocos resultados, mostrar todos
-                if len(filtered_trends) < 5:
-                    return trending_data['trending_searches'][:10]
-                return filtered_trends[:10]
-            
-            return []
+        # DATOS DE DEMOSTRACIÓN (API deshabilitada para ahorro)
+        demo_trends = {
+            "Ratones": [
+                {"query": "logitech g502 hero", "traffic": "200K+", "growth": "+45%"},
+                {"query": "razer deathadder v3", "traffic": "150K+", "growth": "+38%"},
+                {"query": "corsair dark core", "traffic": "80K+", "growth": "+22%"},
+                {"query": "steelseries rival 3", "traffic": "65K+", "growth": "+15%"},
+                {"query": "glorious model o", "traffic": "55K+", "growth": "+12%"}
+            ],
+            "Teclados": [
+                {"query": "keychron k2", "traffic": "180K+", "growth": "+52%"},
+                {"query": "corsair k70 rgb", "traffic": "140K+", "growth": "+35%"},
+                {"query": "razer blackwidow", "traffic": "120K+", "growth": "+28%"},
+                {"query": "logitech g915", "traffic": "90K+", "growth": "+18%"},
+                {"query": "ducky one 2", "traffic": "70K+", "growth": "+14%"}
+            ],
+            "Monitores": [
+                {"query": "lg ultragear 27", "traffic": "220K+", "growth": "+58%"},
+                {"query": "asus rog swift", "traffic": "190K+", "growth": "+42%"},
+                {"query": "samsung odyssey g7", "traffic": "160K+", "growth": "+36%"},
+                {"query": "benq zowie xl", "traffic": "110K+", "growth": "+25%"},
+                {"query": "acer predator x", "traffic": "95K+", "growth": "+19%"}
+            ],
+            "Auriculares": [
+                {"query": "hyperx cloud alpha", "traffic": "175K+", "growth": "+48%"},
+                {"query": "steelseries arctis 7", "traffic": "145K+", "growth": "+40%"},
+                {"query": "razer kraken v3", "traffic": "125K+", "growth": "+32%"},
+                {"query": "logitech g733", "traffic": "100K+", "growth": "+24%"},
+                {"query": "corsair void rgb", "traffic": "85K+", "growth": "+17%"}
+            ],
+            "Gráficas": [
+                {"query": "rtx 4090", "traffic": "350K+", "growth": "+65%"},
+                {"query": "rtx 4080", "traffic": "280K+", "growth": "+55%"},
+                {"query": "rx 7900 xtx", "traffic": "190K+", "growth": "+44%"},
+                {"query": "rtx 4070 ti", "traffic": "160K+", "growth": "+38%"},
+                {"query": "rx 7800 xt", "traffic": "130K+", "growth": "+29%"}
+            ],
+            "Procesadores": [
+                {"query": "ryzen 9 7950x", "traffic": "240K+", "growth": "+56%"},
+                {"query": "intel core i9 14900k", "traffic": "210K+", "growth": "+49%"},
+                {"query": "ryzen 7 7800x3d", "traffic": "185K+", "growth": "+43%"},
+                {"query": "intel core i7 14700k", "traffic": "155K+", "growth": "+36%"},
+                {"query": "ryzen 5 7600x", "traffic": "120K+", "growth": "+28%"}
+            ],
+            "Placas Base": [
+                {"query": "asus rog strix x670", "traffic": "140K+", "growth": "+41%"},
+                {"query": "msi mpg z790", "traffic": "115K+", "growth": "+34%"},
+                {"query": "gigabyte aorus b650", "traffic": "95K+", "growth": "+27%"},
+                {"query": "asrock b760", "traffic": "75K+", "growth": "+20%"},
+                {"query": "msi mag b550", "traffic": "60K+", "growth": "+15%"}
+            ],
+            "RAM": [
+                {"query": "corsair vengeance ddr5", "traffic": "165K+", "growth": "+46%"},
+                {"query": "g.skill trident z5", "traffic": "135K+", "growth": "+39%"},
+                {"query": "kingston fury beast", "traffic": "110K+", "growth": "+31%"},
+                {"query": "crucial ballistix", "traffic": "85K+", "growth": "+23%"},
+                {"query": "teamgroup t-force", "traffic": "70K+", "growth": "+18%"}
+            ],
+            "SSD": [
+                {"query": "samsung 990 pro", "traffic": "200K+", "growth": "+51%"},
+                {"query": "wd black sn850x", "traffic": "170K+", "growth": "+44%"},
+                {"query": "crucial p5 plus", "traffic": "140K+", "growth": "+37%"},
+                {"query": "kingston kc3000", "traffic": "105K+", "growth": "+28%"},
+                {"query": "seagate firecuda", "traffic": "80K+", "growth": "+21%"}
+            ],
+            "Refrigeración": [
+                {"query": "noctua nh-d15", "traffic": "125K+", "growth": "+38%"},
+                {"query": "arctic liquid freezer", "traffic": "100K+", "growth": "+32%"},
+                {"query": "corsair icue h150i", "traffic": "85K+", "growth": "+26%"},
+                {"query": "be quiet dark rock", "traffic": "70K+", "growth": "+19%"},
+                {"query": "nzxt kraken z", "traffic": "60K+", "growth": "+16%"}
+            ]
+        }
         
-        st.markdown(f"**🔍 Tendencias en {trending_category}** (Últimas 24h)")
+        st.markdown(f"**🔍 Tendencias en {trending_category}** (Datos de demostración)")
+        st.info("💡 Esta feature funcionaba perfectamente con datos reales de Google Trends, pero se deshabilitó para ahorrar API calls. Los datos mostrados son ejemplos realistas.")
         
-        trends = get_daily_trending(trending_geo, trending_category)
+        # Mostrar datos de demo
+        category_trends = demo_trends.get(trending_category, demo_trends["Ratones"])
         
-        if trends:
-            for trend in trends:
-                st.markdown(render_trending_item(trend), unsafe_allow_html=True)
-        else:
-            st.info(f"No hay tendencias disponibles para {trending_category} hoy")
+        for idx, trend in enumerate(category_trends, 1):
+            # Crear card de tendencia con datos de ejemplo
+            growth_color = "#34C759" if "+" in trend["growth"] else "#FF3B30"
+            
+            st.markdown(f"""
+            <div style="
+                background: white;
+                border: 1px solid rgba(0,0,0,0.08);
+                border-left: 4px solid {growth_color};
+                border-radius: 8px;
+                padding: 0.75rem 1rem;
+                margin-bottom: 0.5rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            ">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="font-size: 1.2rem; font-weight: 600; color: #6e6e73;">
+                        #{idx}
+                    </span>
+                    <div>
+                        <div style="font-weight: 600; color: #1d1d1f; margin-bottom: 0.25rem;">
+                            {trend['query']}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #6e6e73;">
+                            {trend['traffic']} búsquedas
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-weight: 600; color: {growth_color}; font-size: 1.1rem;">
+                        {trend['growth']}
+                    </div>
+                    <div style="font-size: 0.75rem; color: #6e6e73;">
+                        vs ayer
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ================================
 # FLOATING FOOTER TOOLBAR
