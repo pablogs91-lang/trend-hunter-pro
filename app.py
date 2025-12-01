@@ -3606,98 +3606,44 @@ def render_empty_state(icon, title, message, suggestions=None):
         message (str): Mensaje descriptivo
         suggestions (list): Lista de sugerencias opcionales
     
-    Returns:
-        str: HTML del empty state
-    
-    Note: No se escapa HTML porque todo el contenido es controlado por la app
+    Note: Usa st.write con unsafe_allow_html=True para renderizar
     """
-    html_content = f"""
-    <div class="animate-fadeIn" style="
-        text-align: center;
-        padding: 4rem 2rem;
-        background: linear-gradient(135deg, #f5f5f7 0%, #ffffff 100%);
-        border-radius: 20px;
-        border: 2px dashed rgba(0, 0, 0, 0.1);
-        margin: 2rem 0;
-    ">
-        <div style="font-size: 4rem; margin-bottom: 1.5rem; animation: pulse 2s ease-in-out infinite;">
-            {icon}
-        </div>
-        <h3 style="
-            color: var(--text-primary);
-            margin-bottom: 0.75rem;
-            font-size: 1.5rem;
-            font-weight: 600;
-        ">
-            {title}
-        </h3>
-        <p style="
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
-            font-size: 1rem;
-            line-height: 1.6;
-            max-width: 500px;
-            margin-left: auto;
-            margin-right: auto;
-        ">
-            {message}
-        </p>
-    """
-    
+    # Construir HTML
+    suggestions_html = ""
     if suggestions and len(suggestions) > 0:
-        html_content += """
-        <div style="margin-top: 2rem;">
-            <div style="
-                color: var(--text-primary);
-                font-weight: 600;
-                margin-bottom: 1rem;
-                font-size: 0.95rem;
-            ">
-                💡 Prueba buscando:
-            </div>
-            <div style="
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.75rem;
-                justify-content: center;
-                max-width: 600px;
-                margin: 0 auto;
-            ">
-        """
-        
+        chips_html = ""
         for suggestion in suggestions:
-            html_content += f"""
-            <span style="
-                display: inline-block;
-                background: white;
-                padding: 0.5rem 1rem;
-                border-radius: 20px;
-                font-size: 0.9rem;
-                color: var(--text-primary);
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                transition: all 0.2s ease;
-                cursor: pointer;
-                font-weight: 500;
-            " tabindex="0"
-               onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
-               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'"
-               onfocus="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
-               onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'">
-                {suggestion}
-            </span>
-            """
+            chips_html += f'<span style="display:inline-block;background:white;padding:0.5rem 1rem;border-radius:20px;font-size:0.9rem;color:#1d1d1f;border:1px solid rgba(0,0,0,0.08);margin:0.25rem;font-weight:500;">{suggestion}</span>'
         
-        html_content += """
+        suggestions_html = f'''
+        <div style="margin-top:2rem;">
+            <div style="color:#1d1d1f;font-weight:600;margin-bottom:1rem;font-size:0.95rem;">💡 Prueba buscando:</div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.75rem;justify-content:center;max-width:600px;margin:0 auto;">
+                {chips_html}
             </div>
         </div>
-        """
+        '''
     
-    html_content += "</div>"
-    return html_content
+    html_content = f'''
+    <div style="text-align:center;padding:4rem 2rem;background:linear-gradient(135deg,#f5f5f7 0%,#ffffff 100%);border-radius:20px;border:2px dashed rgba(0,0,0,0.1);margin:2rem 0;">
+        <div style="font-size:4rem;margin-bottom:1.5rem;">{icon}</div>
+        <h3 style="color:#1d1d1f;margin-bottom:0.75rem;font-size:1.5rem;font-weight:600;">{title}</h3>
+        <p style="color:#6e6e73;margin-bottom:2rem;font-size:1rem;line-height:1.6;max-width:500px;margin-left:auto;margin-right:auto;">{message}</p>
+        {suggestions_html}
+    </div>
+    '''
+    
+    # Intentar diferentes métodos según disponibilidad
+    try:
+        # Método 1: st.write con unsafe_allow_html (más compatible)
+        st.write(html_content, unsafe_allow_html=True)
+    except Exception as e:
+        # Método 2: st.markdown como fallback
+        st.markdown(html_content, unsafe_allow_html=True)
 
 def render_no_queries_state():
     """Empty state cuando no hay queries"""
-    return render_empty_state(
+    render_empty_state(
         icon="🔍",
         title="No se encontraron búsquedas",
         message="No hay queries relacionadas con relevancia suficiente. Intenta ajustar los filtros o probar con otra marca.",
@@ -3706,7 +3652,7 @@ def render_no_queries_state():
 
 def render_no_topics_state():
     """Empty state cuando no hay topics"""
-    return render_empty_state(
+    render_empty_state(
         icon="📊",
         title="No hay temas disponibles",
         message="No se encontraron temas relacionados para esta búsqueda. Prueba con una marca más popular o conocida.",
@@ -3715,7 +3661,7 @@ def render_no_topics_state():
 
 def render_no_data_state():
     """Empty state cuando no hay datos en general"""
-    return render_empty_state(
+    render_empty_state(
         icon="🌐",
         title="Sin datos disponibles",
         message="No se encontraron datos para esta búsqueda. Verifica el nombre de la marca o intenta con otro país.",
@@ -3724,7 +3670,7 @@ def render_no_data_state():
 
 def render_low_relevance_state(threshold):
     """Empty state cuando todas las queries tienen baja relevancia"""
-    return render_empty_state(
+    render_empty_state(
         icon="⚠️",
         title=f"Relevancia por debajo del {threshold}%",
         message=f"Todas las búsquedas relacionadas tienen una relevancia menor al {threshold}%. Reduce el umbral de filtrado o prueba con otra marca.",
@@ -5006,7 +4952,7 @@ def display_queries_filtered(queries_data, categories, threshold, query_type="al
     
     if not all_queries:
         # SPRINT 4: Empty state mejorado
-        st.markdown(render_low_relevance_state(threshold), unsafe_allow_html=True)
+        render_low_relevance_state(threshold)
         return
     
     # Ordenar queries PRIMERO (antes de mostrar contador)
@@ -5686,7 +5632,7 @@ if search_mode == "🔍 Manual":
                                         st.dataframe(pd.DataFrame(topics_list), use_container_width=True)
                         else:
                             # SPRINT 4: Empty state para topics
-                            st.markdown(render_no_topics_state(), unsafe_allow_html=True)
+                            render_no_topics_state()
                     
                     with google_subtabs[2]:
                         if data['queries'] and 'related_queries' in data['queries']:
@@ -6140,12 +6086,12 @@ if search_mode == "🔍 Manual":
     else:
         # Si no hay búsqueda, mostrar welcome
         if not search_query or not search_button:
-            st.markdown(render_empty_state(
+            render_empty_state(
                 icon="🚀",
                 title="Bienvenido a Abra",
                 message="Introduce el nombre de una marca tecnológica para comenzar el análisis de tendencias de búsqueda. Descubre insights de múltiples países simultáneamente.",
                 suggestions=["logitech", "razer", "corsair", "keychron", "arozzi", "steelseries"]
-            ), unsafe_allow_html=True)
+            )
 
 
 # ================================
@@ -6357,12 +6303,12 @@ elif search_mode == "📈 Histórico":
     history = load_analysis_history()
     
     if not history:
-        st.markdown(render_empty_state(
+        render_empty_state(
             icon="📭",
             title="Sin histórico disponible",
             message="Realiza un análisis y guárdalo usando el botón '💾 Guardar en Histórico' para comenzar a ver evoluciones.",
             suggestions=["logitech", "razer", "corsair"]
-        ), unsafe_allow_html=True)
+        )
     else:
         # Mostrar total de registros
         st.info(f"📊 **{len(history)} análisis guardados** (últimos 100)")
