@@ -6278,29 +6278,6 @@ elif search_mode == "⚖️ Comparador":
                 st.error(f"❌ Error en la comparación: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
-                    for brand in brands_to_compare:
-                        with st.expander(f"📊 Detalles de {brand}", expanded=False):
-                            if brand in comparison_results and geo in comparison_results[brand]:
-                                data = comparison_results[brand][geo]
-                                
-                                # Métricas
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    val = f"{data['month_change']:.1f}%" if data['month_change'] else "N/A"
-                                    st.metric("Último Mes", val)
-                                with col2:
-                                    val = f"{data['quarter_change']:.1f}%" if data['quarter_change'] else "N/A"
-                                    st.metric("Trimestre", val)
-                                with col3:
-                                    val = f"{data['year_change']:.1f}%" if data['year_change'] else "N/A"
-                                    st.metric("Año", val)
-                                with col4:
-                                    val = f"{data['avg_value']:.0f}/100" if data['avg_value'] else "N/A"
-                                    st.metric("Promedio 5Y", val)
-            
-            except Exception as e:
-                st.error(f"❌ Error al comparar marcas: {str(e)}")
-                st.info("💡 Verifica los nombres de las marcas e intenta nuevamente")
 
 # ================================
 # SPRINT 5: HISTÓRICO DE ANÁLISIS

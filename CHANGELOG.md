@@ -7,6 +7,26 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [8.6.1] - 2024-12-01 - HOTFIX: Indentation Error 🔧
+
+### 🐛 Critical Fix
+- **Fixed IndentationError** on line 6281
+- **Root cause**: Duplicated code block from old comparator version
+- **Solution**: Removed 24 lines of duplicated code
+- **Impact**: App was crashing on load
+
+### 🔧 Technical Details
+- Removed lines 6281-6303 (old comparator remnant)
+- Fixed except block indentation
+- Verified with `py_compile` - no syntax errors
+
+### ✅ Verification
+- App compiles successfully
+- No indentation errors
+- Ready for deployment
+
+---
+
 ## [8.6.0] - 2024-12-01 - MAJOR IMPROVEMENTS 🔒📊⚖️
 
 ### 🔒 Security & Stability
@@ -580,5 +600,5 @@ Version 1.0-3.0 are deprecated. Use 8.2+ for production.
 
 **Maintained by**: PCComponentes Competitive Intelligence Team  
 **Last Updated**: 2024-12-01  
-**Current Version**: 8.6.0  
+**Current Version**: 8.6.1  
 **Status**: ✅ Production Ready
