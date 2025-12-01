@@ -7,6 +7,51 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [8.5.1] - 2024-12-01 - TREND SPARKLINES + HTML FIX 📈🔧
+
+### 🐛 Bug Fixes
+- **CRITICAL**: Fixed HTML showing as text in welcome screen
+- **Root cause**: Missing HTML escaping in `render_empty_state()`
+- **Solution**: Added `html.escape()` for all user content
+- **Impact**: Welcome screen now renders correctly
+
+### ✨ New Features
+- **Query Sparklines**: Real trend lines for each query
+- **Top 5 queries** now show 12-month sparkline
+- **Visual trend indicator**: 📈 (up), 📉 (down), ➡️ (flat)
+- **Mini charts**: Inline sparkline showing last 12 months
+- **Optimized**: Only loads trends for top 5 queries (saves API calls)
+
+### 🎨 Visual Improvements
+- Sparklines with color coding (green up, red down, gray flat)
+- Trend emoji indicators
+- "Tendencia últimos 12 meses" label
+- Clean inline visualization
+
+### 🔧 Technical Details
+- Added `get_query_trend()` function with caching
+- Modified `render_query_with_bar()` to accept trend_values
+- Sparkline generated with inline divs (no external libs)
+- 0.3s delay between trend API calls
+- Only fetches trends on page 1 (optimization)
+
+### 📊 Example Output
+```
+1. logitech mouse gaming ━━━━━━━░ 85
+   📈 ▂▃▅▆█▇▆▅▃▄█▇ Tendencia últimos 12 meses
+   
+2. logitech g502 ━━━━━░░░░ 72
+   ➡️ ▄▄▅▄▅▄▄▄▄▄▅▄ Tendencia últimos 12 meses
+```
+
+### 💡 Business Value
+- **See trends instantly** - No need to search each query
+- **Identify hot queries** - Sparklines show which are growing
+- **Better decisions** - Visual trends = faster insights
+- **No extra clicks** - Trends inline with queries
+
+---
+
 ## [8.5.0] - 2024-12-01 - AUTOMATIC MULTI-CHANNEL ANALYSIS 🌐✨
 
 ### ✨ Major Features
@@ -437,6 +482,7 @@ title="Jan - Interés: 47 | Promedio: 48 | Diferencia: -3.0% | 📉 Por debajo d
 
 | Version | Date | Type | Status |
 |---------|------|------|--------|
+| 8.5.1 | 2024-12-01 | Bug Fix + Feature | ✅ READY |
 | 8.5.0 | 2024-12-01 | Major Feature | ✅ READY |
 | 8.4.0 | 2024-12-01 | Major Feature | ✅ READY |
 | 8.3.0 | 2024-12-01 | Feature | ✅ READY |
@@ -483,5 +529,5 @@ Version 1.0-3.0 are deprecated. Use 8.2+ for production.
 
 **Maintained by**: PCComponentes Competitive Intelligence Team  
 **Last Updated**: 2024-12-01  
-**Current Version**: 8.5.0  
+**Current Version**: 8.5.1  
 **Status**: ✅ Production Ready

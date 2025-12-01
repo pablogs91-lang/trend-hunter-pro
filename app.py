@@ -1195,6 +1195,45 @@ def get_autocomplete(query):
     except:
         return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_query_trend(query, geo="ES", timeframe="today 12-m"):
+    """
+    Obtiene la tendencia temporal de una query específica.
+    Usado para mostrar sparklines en cada query.
+    
+    Args:
+        query (str): Query a analizar
+        geo (str): País (ES, PT, FR, IT, DE)
+        timeframe (str): Período (today 12-m para último año)
+    
+    Returns:
+        list: Lista de valores de tendencia [v1, v2, v3, ...]
+    """
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_trends",
+        "q": query,
+        "geo": geo,
+        "data_type": "TIMESERIES",
+        "date": timeframe,
+        "api_key": SERPAPI_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if 'interest_over_time' in data:
+                timeline_data = data['interest_over_time'].get('timeline_data', [])
+                # Extraer solo los valores
+                values = [item.get('values', [{}])[0].get('extracted_value', 0) 
+                         for item in timeline_data]
+                # Tomar últimos 12 puntos para sparkline
+                return values[-12:] if len(values) > 12 else values
+        return None
+    except Exception as e:
+        return None
+
 # ================================
 # AMAZON APIs INTEGRATION
 # ================================
@@ -2064,8 +2103,20 @@ def sort_queries(queries, sort_by='volume'):
     else:
         return queries
 
-def render_query_with_bar(query_text, value, max_value, index, query_type="Query", relevance=0):
-    """Renderiza una query con barra visual estilo Glimpse"""
+def render_query_with_bar(query_text, value, max_value, index, query_type="Query", relevance=0, trend_values=None):
+    """
+    Renderiza una query con barra visual estilo Glimpse.
+    Opcionalmente muestra sparkline si trend_values está disponible.
+    
+    Args:
+        query_text (str): Texto de la query
+        value (int/str): Valor/volumen
+        max_value (int): Valor máximo para calcular %
+        index (int): Índice de la query
+        query_type (str): Tipo de query
+        relevance (int): Relevancia %
+        trend_values (list): Lista de valores para sparkline [v1, v2, ...]
+    """
     # Calcular width de la barra (porcentaje del máximo)
     if max_value > 0:
         width_pct = (value / max_value) * 100
@@ -2083,17 +2134,57 @@ def render_query_with_bar(query_text, value, max_value, index, query_type="Query
         value_display = str(int(value))
         numeric_value = f"{value:,}"
     
+    # Escapar query_text para HTML
+    safe_query_text = html.escape(str(query_text))
+    
     # Fix: Use pipe separators instead of newlines in HTML title attribute
-    tooltip_text = f"{query_text} | Volumen: {numeric_value} | Tipo: {query_type} | Relevancia: {relevance}%"
+    tooltip_text = f"{safe_query_text} | Volumen: {numeric_value} | Tipo: {query_type} | Relevancia: {relevance}%"
+    
+    # Generar sparkline si hay datos de tendencia
+    sparkline_html = ""
+    if trend_values and len(trend_values) > 0:
+        # Crear mini sparkline inline
+        max_trend = max(trend_values) if trend_values else 1
+        max_trend = max(max_trend, 1)  # Evitar división por 0
+        
+        # Calcular tendencia (último vs primero)
+        if len(trend_values) >= 2:
+            first_val = trend_values[0] if trend_values[0] > 0 else 1
+            last_val = trend_values[-1]
+            trend_change = ((last_val - first_val) / first_val) * 100
+            trend_emoji = "📈" if trend_change > 5 else "📉" if trend_change < -5 else "➡️"
+            trend_color = "#34C759" if trend_change > 5 else "#FF3B30" if trend_change < -5 else "#6e6e73"
+        else:
+            trend_emoji = "➡️"
+            trend_color = "#6e6e73"
+        
+        # Crear puntos del sparkline (mini gráfico)
+        sparkline_points = []
+        for i, val in enumerate(trend_values):
+            height_pct = (val / max_trend) * 100 if max_trend > 0 else 0
+            sparkline_points.append(f'<div style="height:{height_pct}%; background:{trend_color}; width:3px; display:inline-block; margin:0 1px; vertical-align:bottom;"></div>')
+        
+        sparkline_html = f'''
+        <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.25rem;">
+            <span style="font-size:1rem;">{trend_emoji}</span>
+            <div style="display:flex; align-items:flex-end; height:20px; gap:1px;">
+                {"".join(sparkline_points)}
+            </div>
+            <span style="font-size:0.75rem; color:{trend_color}; font-weight:600;">
+                Tendencia últimos 12 meses
+            </span>
+        </div>
+        '''
     
     return f"""
     <div class="query-bar-container" title="{tooltip_text}">
-        <div class="query-text">{index}. {query_text}</div>
+        <div class="query-text">{index}. {safe_query_text}</div>
         <div class="query-bar-wrapper">
             <div class="query-bar" style="width: {width_pct}%">
                 <span class="query-value">{value_display}</span>
             </div>
         </div>
+        {sparkline_html}
     </div>
     """
 
@@ -3503,7 +3594,12 @@ def render_empty_state(icon, title, message, suggestions=None):
     Returns:
         str: HTML del empty state
     """
-    html = f"""
+    # Escapar contenido user-provided
+    safe_icon = html.escape(str(icon))
+    safe_title = html.escape(str(title))
+    safe_message = html.escape(str(message))
+    
+    html_content = f"""
     <div class="animate-fadeIn" style="
         text-align: center;
         padding: 4rem 2rem;
@@ -3513,7 +3609,7 @@ def render_empty_state(icon, title, message, suggestions=None):
         margin: 2rem 0;
     ">
         <div style="font-size: 4rem; margin-bottom: 1.5rem; animation: pulse 2s ease-in-out infinite;">
-            {icon}
+            {safe_icon}
         </div>
         <h3 style="
             color: var(--text-primary);
@@ -3521,7 +3617,7 @@ def render_empty_state(icon, title, message, suggestions=None):
             font-size: 1.5rem;
             font-weight: 600;
         ">
-            {title}
+            {safe_title}
         </h3>
         <p style="
             color: var(--text-secondary);
@@ -3532,12 +3628,12 @@ def render_empty_state(icon, title, message, suggestions=None):
             margin-left: auto;
             margin-right: auto;
         ">
-            {message}
+            {safe_message}
         </p>
     """
     
     if suggestions and len(suggestions) > 0:
-        html += """
+        html_content += """
         <div style="margin-top: 2rem;">
             <div style="
                 color: var(--text-primary);
@@ -3558,7 +3654,8 @@ def render_empty_state(icon, title, message, suggestions=None):
         """
         
         for suggestion in suggestions:
-            html += f"""
+            safe_suggestion = html.escape(str(suggestion))
+            html_content += f"""
             <span style="
                 display: inline-block;
                 background: white;
@@ -3575,17 +3672,17 @@ def render_empty_state(icon, title, message, suggestions=None):
                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'"
                onfocus="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.1)'; this.style.borderColor='var(--accent-blue)'"
                onblur="this.style.transform='translateY(0)'; this.style.boxShadow='none'; this.style.borderColor='rgba(0, 0, 0, 0.08)'">
-                {suggestion}
+                {safe_suggestion}
             </span>
             """
         
-        html += """
+        html_content += """
             </div>
         </div>
         """
     
-    html += "</div>"
-    return html
+    html_content += "</div>"
+    return html_content
 
 def render_no_queries_state():
     """Empty state cuando no hay queries"""
@@ -4941,19 +5038,35 @@ def display_queries_filtered(queries_data, categories, threshold, query_type="al
             unsafe_allow_html=True
         )
     
-    # Renderizar queries con barras
+    # Obtener tendencias para top 5 queries (solo primera página para optimizar)
+    query_trends = {}
+    if paginated['current_page'] == 1:
+        with st.spinner("📈 Obteniendo tendencias..."):
+            for query_data in paginated['data'][:5]:  # Solo top 5
+                query_text = query_data['query']
+                # Obtener tendencia de esta query
+                trend_values = get_query_trend(query_text, geo="ES", timeframe="today 12-m")
+                if trend_values:
+                    query_trends[query_text] = trend_values
+                time.sleep(0.3)  # Pequeño delay entre llamadas
+    
+    # Renderizar queries con barras y sparklines
     max_value = max([q['numeric_value'] for q in paginated['data']], default=1)
     max_value = max(max_value, 1)  # FIX: Asegurar mínimo de 1 para evitar división por 0
     
     queries_html = ""
     for idx, query in enumerate(paginated['data'], start=paginated['start_idx']):
+        query_text = query['query']
+        trend_values = query_trends.get(query_text, None)  # Obtener tendencia si está disponible
+        
         queries_html += render_query_with_bar(
-            query['query'],
+            query_text,
             query['numeric_value'],
             max_value,
             idx,
             query_type=query.get('type', 'Query'),
-            relevance=query.get('relevance', 0)
+            relevance=query.get('relevance', 0),
+            trend_values=trend_values  # Pasar tendencia
         )
     
     st.markdown(queries_html, unsafe_allow_html=True)
