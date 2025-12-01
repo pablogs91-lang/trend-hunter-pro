@@ -3260,7 +3260,7 @@ def render_news_card(news_item):
     </div>
     """
     
-    return html
+    return html_content
 
 def render_trending_item(trend):
     """
