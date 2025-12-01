@@ -2,34 +2,35 @@
 # TREND HUNTER PRO - Dependencies
 # Version: 8.4.0 Production
 # Updated: 2024-12-01
+# Fixed: Removed lxml (build issues in Streamlit Cloud)
 # ================================
 
 # Core Framework
-streamlit==1.32.0
+streamlit>=1.28.0
 
 # Data Processing
-pandas==2.2.0
-numpy==1.26.3
+pandas>=2.0.0
+numpy>=1.24.0
 
 # Visualization
-plotly==5.18.0
+plotly>=5.17.0
 
 # API Clients
-requests==2.31.0
-urllib3==2.1.0
+requests>=2.31.0
+urllib3>=2.0.0
 
 # Utilities
-python-dateutil==2.8.2
-pytz==2024.1
-python-dotenv==1.0.0
+python-dateutil>=2.8.0
+pytz>=2023.3
+python-dotenv>=1.0.0
 
 # Export Features
-openpyxl==3.1.2      # Excel export
-reportlab==4.0.9     # PDF export
+openpyxl>=3.1.0      # Excel export
+reportlab>=4.0.0     # PDF export
 
 # Image Processing
-Pillow==10.2.0
+Pillow>=10.0.0
 
 # Optional but recommended
-beautifulsoup4==4.12.3  # HTML parsing
-lxml==5.1.0             # XML processing
+beautifulsoup4>=4.12.0  # HTML parsing
+# lxml>=5.1.0  # REMOVED: Build issues in Streamlit Cloud, beautifulsoup4 can use html.parser instead
