@@ -2179,6 +2179,248 @@ def analyze_brand(brand, countries, categories, threshold, channel="web"):
     
     return results
 
+def analyze_all_channels(brand, countries, categories, threshold):
+    """
+    Analiza la marca en TODOS los canales simultáneamente.
+    Consolida y estructura todos los datos de forma unificada.
+    
+    Args:
+        brand (str): Marca a analizar
+        countries (list): Países a analizar
+        categories (list): Categorías
+        threshold (int): Umbral de relevancia
+    
+    Returns:
+        dict: Datos estructurados y consolidados de todos los canales
+    """
+    all_channels_data = {}
+    
+    # Canales a analizar
+    channels_to_analyze = ['web', 'images', 'news', 'youtube', 'shopping']
+    
+    for geo in countries:
+        country_name = COUNTRIES[geo]['name']
+        with st.spinner(f'🌐 Analizando {brand} en {country_name} - Todos los canales...'):
+            
+            channel_results = {}
+            
+            # Iterar por cada canal
+            for channel_key in channels_to_analyze:
+                channel_name = CHANNELS[channel_key]["name"]
+                gprop = CHANNELS[channel_key]["gprop"]
+                
+                try:
+                    # Obtener datos de este canal
+                    timeline = get_interest_over_time(brand, geo, gprop)
+                    time.sleep(0.5)
+                    
+                    queries = get_related_queries(brand, geo, gprop)
+                    time.sleep(0.5)
+                    
+                    topics = get_related_topics(brand, geo, gprop)
+                    time.sleep(0.5)
+                    
+                    # Calcular cambios
+                    month_change, quarter_change, year_change, avg_value = calculate_changes(timeline)
+                    
+                    # Guardar resultados del canal
+                    channel_results[channel_key] = {
+                        'name': channel_name,
+                        'timeline': timeline,
+                        'queries': queries,
+                        'topics': topics,
+                        'month_change': month_change,
+                        'quarter_change': quarter_change,
+                        'year_change': year_change,
+                        'avg_value': avg_value
+                    }
+                    
+                except Exception as e:
+                    # Si un canal falla, registrar pero continuar
+                    channel_results[channel_key] = {
+                        'name': channel_name,
+                        'error': str(e),
+                        'timeline': None,
+                        'queries': None,
+                        'topics': None,
+                        'month_change': 0,
+                        'quarter_change': 0,
+                        'year_change': 0,
+                        'avg_value': 0
+                    }
+            
+            # Consolidar datos del país
+            all_channels_data[geo] = {
+                'country': country_name,
+                'channels': channel_results,
+                'consolidated': consolidate_channel_data(channel_results, brand, geo)
+            }
+    
+    return all_channels_data
+
+def consolidate_channel_data(channel_results, brand, geo):
+    """
+    Consolida datos de múltiples canales en un análisis unificado.
+    
+    Args:
+        channel_results (dict): Resultados de cada canal
+        brand (str): Marca analizada
+        geo (str): País
+    
+    Returns:
+        dict: Datos consolidados y análisis cross-channel
+    """
+    consolidated = {
+        'total_channels': len(channel_results),
+        'channels_with_data': 0,
+        'all_queries': [],
+        'all_topics': [],
+        'channel_volumes': {},
+        'dominant_channel': None,
+        'insights': []
+    }
+    
+    # Recopilar datos de todos los canales
+    total_volume = 0
+    channel_volumes = {}
+    
+    for channel_key, data in channel_results.items():
+        if 'error' not in data and data.get('avg_value', 0) > 0:
+            consolidated['channels_with_data'] += 1
+            
+            # Volumen promedio del canal
+            avg_val = data.get('avg_value', 0)
+            channel_volumes[channel_key] = avg_val
+            total_volume += avg_val
+            
+            # Consolidar queries
+            if data.get('queries') and 'related_queries' in data['queries']:
+                if 'top' in data['queries']['related_queries']:
+                    for q in data['queries']['related_queries']['top']:
+                        consolidated['all_queries'].append({
+                            'query': q.get('query', ''),
+                            'value': q.get('value', 0),
+                            'channel': channel_key,
+                            'channel_name': data['name']
+                        })
+            
+            # Consolidar topics
+            if data.get('topics') and 'related_topics' in data['topics']:
+                if 'top' in data['topics']['related_topics']:
+                    for t in data['topics']['related_topics']['top'][:10]:
+                        consolidated['all_topics'].append({
+                            'title': t.get('topic', {}).get('title', ''),
+                            'type': t.get('topic', {}).get('type', ''),
+                            'value': t.get('value', 0),
+                            'channel': channel_key,
+                            'channel_name': data['name']
+                        })
+    
+    consolidated['channel_volumes'] = channel_volumes
+    
+    # Determinar canal dominante
+    if channel_volumes:
+        dominant = max(channel_volumes.items(), key=lambda x: x[1])
+        consolidated['dominant_channel'] = {
+            'key': dominant[0],
+            'name': channel_results[dominant[0]]['name'],
+            'volume': dominant[1],
+            'percentage': (dominant[1] / total_volume * 100) if total_volume > 0 else 0
+        }
+    
+    # Generar insights cross-channel
+    consolidated['insights'] = generate_cross_channel_insights(
+        channel_results, 
+        channel_volumes, 
+        consolidated['dominant_channel']
+    )
+    
+    return consolidated
+
+def generate_cross_channel_insights(channel_results, channel_volumes, dominant_channel):
+    """
+    Genera insights analizando datos de múltiples canales.
+    
+    Args:
+        channel_results (dict): Resultados de cada canal
+        channel_volumes (dict): Volúmenes por canal
+        dominant_channel (dict): Canal dominante
+    
+    Returns:
+        list: Lista de insights
+    """
+    insights = []
+    
+    # Insight 1: Canal dominante
+    if dominant_channel:
+        insights.append({
+            'type': 'dominant_channel',
+            'icon': '🏆',
+            'title': f"Canal dominante: {dominant_channel['name']}",
+            'description': f"{dominant_channel['percentage']:.1f}% del volumen total de búsquedas",
+            'severity': 'info'
+        })
+    
+    # Insight 2: Distribución de canales
+    if len(channel_volumes) > 0:
+        # Calcular si hay equilibrio o concentración
+        volumes = list(channel_volumes.values())
+        max_vol = max(volumes)
+        min_vol = min(volumes)
+        
+        if max_vol > 0 and (max_vol / sum(volumes)) > 0.6:
+            insights.append({
+                'type': 'concentration',
+                'icon': '⚠️',
+                'title': 'Concentración alta en un canal',
+                'description': 'Más del 60% del interés está en un solo canal',
+                'severity': 'warning'
+            })
+        else:
+            insights.append({
+                'type': 'balanced',
+                'icon': '✅',
+                'title': 'Distribución equilibrada',
+                'description': 'El interés está distribuido entre varios canales',
+                'severity': 'success'
+            })
+    
+    # Insight 3: Canales con crecimiento
+    growing_channels = []
+    for channel_key, data in channel_results.items():
+        if 'error' not in data and data.get('month_change', 0) > 10:
+            growing_channels.append({
+                'name': data['name'],
+                'growth': data['month_change']
+            })
+    
+    if growing_channels:
+        top_growth = max(growing_channels, key=lambda x: x['growth'])
+        insights.append({
+            'type': 'growth',
+            'icon': '📈',
+            'title': f"Crecimiento destacado en {top_growth['name']}",
+            'description': f"+{top_growth['growth']:.1f}% en el último mes",
+            'severity': 'success'
+        })
+    
+    # Insight 4: Oportunidades de canal
+    low_volume_channels = []
+    for channel_key, volume in channel_volumes.items():
+        if volume > 0 and volume < sum(channel_volumes.values()) * 0.15:  # Menos del 15%
+            low_volume_channels.append(channel_results[channel_key]['name'])
+    
+    if low_volume_channels:
+        insights.append({
+            'type': 'opportunity',
+            'icon': '💡',
+            'title': f"Oportunidad en {', '.join(low_volume_channels[:2])}",
+            'description': 'Canales con bajo volumen pero potencial de crecimiento',
+            'severity': 'info'
+        })
+    
+    return insights
+
 # ================================
 # SPRINT 5: COMPARADOR DE MARCAS
 # ================================
@@ -3632,6 +3874,240 @@ def render_metric_card(label, value, delta=None, delay=0):
     </div>
     """
 
+def render_multi_channel_results(brand, geo, country_data, categories, threshold):
+    """
+    Renderiza resultados de análisis multi-canal de forma estructurada.
+    
+    Args:
+        brand (str): Marca analizada
+        geo (str): Código del país
+        country_data (dict): Datos consolidados del país
+        categories (list): Categorías
+        threshold (int): Umbral de relevancia
+    """
+    country_name = country_data['country']
+    channels = country_data['channels']
+    consolidated = country_data['consolidated']
+    
+    # Header del país
+    st.markdown(f"## 🌍 {country_name}")
+    
+    # ========== RESUMEN EJECUTIVO ==========
+    st.markdown("### 📊 Resumen Multi-Canal")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Canales Analizados",
+            consolidated['total_channels'],
+            f"{consolidated['channels_with_data']} con datos"
+        )
+    
+    with col2:
+        dominant = consolidated.get('dominant_channel')
+        if dominant:
+            st.metric(
+                "Canal Dominante",
+                dominant['name'],
+                f"{dominant['percentage']:.1f}%"
+            )
+        else:
+            st.metric("Canal Dominante", "N/A")
+    
+    with col3:
+        total_queries = len(consolidated['all_queries'])
+        st.metric("Queries Totales", total_queries)
+    
+    with col4:
+        total_topics = len(consolidated['all_topics'])
+        st.metric("Topics Totales", total_topics)
+    
+    # ========== INSIGHTS CROSS-CHANNEL ==========
+    if consolidated['insights']:
+        st.markdown("### 💡 Insights Multi-Canal")
+        
+        for insight in consolidated['insights']:
+            severity_colors = {
+                'success': '#34C759',
+                'warning': '#FF9500',
+                'info': '#007AFF'
+            }
+            color = severity_colors.get(insight.get('severity', 'info'), '#007AFF')
+            
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, {color}15 0%, {color}05 100%);
+                border-left: 4px solid {color};
+                border-radius: 8px;
+                padding: 1rem;
+                margin-bottom: 0.75rem;
+            ">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span style="font-size: 1.5rem;">{insight['icon']}</span>
+                    <div>
+                        <div style="color: #1d1d1f; font-weight: 600; margin-bottom: 0.25rem;">
+                            {insight['title']}
+                        </div>
+                        <div style="color: #6e6e73; font-size: 0.9rem;">
+                            {insight['description']}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ========== GRÁFICO COMPARATIVO DE VOLUMEN POR CANAL ==========
+    st.markdown("### 📊 Volumen por Canal")
+    
+    if consolidated['channel_volumes']:
+        import plotly.graph_objects as go
+        
+        channel_names = []
+        channel_values = []
+        channel_colors = {
+            'web': '#FF6B00',
+            'images': '#34C759',
+            'news': '#FF3B30',
+            'youtube': '#FF0000',
+            'shopping': '#007AFF'
+        }
+        
+        for channel_key, volume in consolidated['channel_volumes'].items():
+            channel_names.append(channels[channel_key]['name'])
+            channel_values.append(volume)
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=channel_names,
+                y=channel_values,
+                marker_color=[channel_colors.get(k, '#6e6e73') for k in consolidated['channel_volumes'].keys()],
+                text=channel_values,
+                textposition='auto',
+            )
+        ])
+        
+        fig.update_layout(
+            title=f"Interés Promedio por Canal - {brand}",
+            xaxis_title="Canal",
+            yaxis_title="Interés (0-100)",
+            height=400,
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # ========== DATOS POR CANAL (TABS) ==========
+    st.markdown("### 📡 Datos Detallados por Canal")
+    
+    # Crear tabs para cada canal
+    channel_tabs = st.tabs([
+        f"{CHANNELS['web']['icon']} Web",
+        f"{CHANNELS['images']['icon']} Images",
+        f"{CHANNELS['news']['icon']} News",
+        f"{CHANNELS['youtube']['icon']} YouTube",
+        f"{CHANNELS['shopping']['icon']} Shopping"
+    ])
+    
+    channel_keys = ['web', 'images', 'news', 'youtube', 'shopping']
+    
+    for idx, channel_key in enumerate(channel_keys):
+        with channel_tabs[idx]:
+            channel_data = channels[channel_key]
+            
+            if 'error' in channel_data:
+                st.error(f"❌ Error obteniendo datos: {channel_data['error']}")
+                continue
+            
+            # Métricas del canal
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
+                    "Interés Promedio",
+                    f"{channel_data['avg_value']:.1f}"
+                )
+            
+            with col2:
+                st.metric(
+                    "Cambio Mensual",
+                    f"{channel_data['month_change']:+.1f}%"
+                )
+            
+            with col3:
+                st.metric(
+                    "Cambio Trimestral",
+                    f"{channel_data['quarter_change']:+.1f}%"
+                )
+            
+            with col4:
+                st.metric(
+                    "Cambio Anual",
+                    f"{channel_data['year_change']:+.1f}%"
+                )
+            
+            # Timeline
+            if channel_data.get('timeline'):
+                timeline = channel_data['timeline']
+                if 'interest_over_time' in timeline:
+                    df = timeline['interest_over_time']
+                    if not df.empty and brand in df.columns:
+                        dates = df.index.strftime('%Y-%m-%d').tolist()
+                        values = df[brand].tolist()
+                        
+                        st.markdown(f"#### 📈 Tendencia Temporal - {channel_data['name']}")
+                        fig = create_trend_chart(dates, values, brand)
+                        st.plotly_chart(fig, use_container_width=True)
+            
+            # Queries del canal
+            if channel_data.get('queries'):
+                st.markdown(f"#### 🔍 Top Queries - {channel_data['name']}")
+                
+                queries_data = channel_data['queries']
+                if 'related_queries' in queries_data and 'top' in queries_data['related_queries']:
+                    top_queries = queries_data['related_queries']['top'][:10]
+                    
+                    for idx_q, q in enumerate(top_queries, 1):
+                        query_text = q.get('query', '')
+                        value = q.get('value', 0)
+                        
+                        st.markdown(f"""
+                        <div style="
+                            background: white;
+                            border: 1px solid rgba(0,0,0,0.08);
+                            border-radius: 8px;
+                            padding: 0.75rem;
+                            margin-bottom: 0.5rem;
+                        ">
+                            <strong>{idx_q}. {query_text}</strong>
+                            <span style="float: right; color: #FF6B00; font-weight: 600;">
+                                {value}
+                            </span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info(f"No hay queries disponibles para {channel_data['name']}")
+            
+            # Topics del canal
+            if channel_data.get('topics'):
+                topics_data = channel_data['topics']
+                if 'related_topics' in topics_data and 'top' in topics_data['related_topics']:
+                    with st.expander(f"📑 Topics - {channel_data['name']}", expanded=False):
+                        top_topics = topics_data['related_topics']['top'][:10]
+                        
+                        topics_list = []
+                        for t in top_topics:
+                            topics_list.append({
+                                'Topic': t.get('topic', {}).get('title', 'N/A'),
+                                'Tipo': t.get('topic', {}).get('type', 'N/A'),
+                                'Valor': t.get('value', 0)
+                            })
+                        
+                        if topics_list:
+                            st.dataframe(pd.DataFrame(topics_list), use_container_width=True)
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
 def create_trend_chart(dates, values, brand_name):
     fig = go.Figure()
     
@@ -4622,30 +5098,15 @@ st.markdown("---")
 # ================================
 
 if search_mode == "🔍 Manual":
-    # SPRINT 5: Selector de canal con estado persistente (BUGFIX)
-    st.markdown("#### 📡 Canal de Búsqueda")
-    channel_cols = st.columns(5)
-    
-    # Usar session_state para persistencia
-    for idx, (channel_key, channel_data) in enumerate(CHANNELS.items()):
-        with channel_cols[idx]:
-            # Determinar si es el canal activo
-            is_active = st.session_state.selected_channel == channel_key
-            button_type = "primary" if is_active else "secondary"
-            
-            if st.button(
-                f"{channel_data['icon']} {channel_data['name']}", 
-                key=f"channel_{channel_key}",
-                use_container_width=True,
-                help=channel_data['description'],
-                type=button_type
-            ):
-                st.session_state.selected_channel = channel_key
-                st.rerun()
-    
-    # Mostrar canal seleccionado
-    selected_channel = st.session_state.selected_channel
-    st.info(f"**Canal activo:** {CHANNELS[selected_channel]['icon']} {CHANNELS[selected_channel]['name']}")
+    # ELIMINADO: Selector de canal - Ahora analiza TODOS los canales automáticamente
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 1rem; border-radius: 12px; margin-bottom: 1rem;">
+        <p style="color: white; margin: 0; font-weight: 600; text-align: center;">
+            🌐 Análisis Multi-Canal Automático: Web + Images + News + YouTube + Shopping
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     col1, col2 = st.columns([4, 1])
     
@@ -4662,13 +5123,13 @@ if search_mode == "🔍 Manual":
         search_button = st.button("🔍 Analizar", type="primary", use_container_width=True)
     
     if search_button and search_query and selected_countries:
-        # BUGFIX: Mejor manejo de errores
+        # Usar nueva función multi-canal
         try:
             # Guardar query en session_state
             st.session_state.search_query = search_query
             
-            with st.spinner(f"🔍 Analizando '{search_query}' en {len(selected_countries)} país(es)..."):
-                results = analyze_brand(search_query, selected_countries, selected_categories, relevance_threshold, selected_channel)
+            with st.spinner(f"🌐 Analizando '{search_query}' en todos los canales..."):
+                results = analyze_all_channels(search_query, selected_countries, selected_categories, relevance_threshold)
             
             # Verificar si hay resultados
             if not results or all(not data for data in results.values()):
@@ -4678,26 +5139,13 @@ if search_mode == "🔍 Manual":
             st.markdown(f"""
             <div class="glass-card">
                 <h2 style="margin: 0; color: #1d1d1f;">📊 {search_query}</h2>
-                <p style="color: #6e6e73; margin-top: 0.5rem;">Análisis completo multi-país</p>
+                <p style="color: #6e6e73; margin-top: 0.5rem;">Análisis completo multi-país y multi-canal</p>
             </div>
             """, unsafe_allow_html=True)
             
-            # SPRINT 5: Botón guardar en histórico
-            col_save, col_spacer = st.columns([2, 8])
-            with col_save:
-                if st.button("💾 Guardar en Histórico", use_container_width=True):
-                    try:
-                        saved_count = 0
-                        for geo, data in results.items():
-                            if save_analysis_to_history(search_query, geo, selected_channel, data):
-                                saved_count += 1
-                        
-                        if saved_count > 0:
-                            st.success(f"✅ Guardado {saved_count} análisis en histórico")
-                        else:
-                            st.warning("⚠️ No se pudo guardar en histórico")
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar: {str(e)}")
+            # Renderizar resultados multi-canal
+            for geo, country_data in results.items():
+                render_multi_channel_results(search_query, geo, country_data, selected_categories, relevance_threshold)
             
             st.markdown("<br>", unsafe_allow_html=True)
             

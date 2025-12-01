@@ -7,6 +7,77 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [8.5.0] - 2024-12-01 - AUTOMATIC MULTI-CHANNEL ANALYSIS 🌐✨
+
+### ✨ Major Features
+- **AUTOMATIC SEARCH**: Now searches ALL channels automatically (no selection needed)
+- **UNIFIED ANALYSIS**: Single search → 5 channels analyzed (Web, Images, News, YouTube, Shopping)
+- **CROSS-CHANNEL INSIGHTS**: Intelligent analysis comparing all channels
+- **CONSOLIDATED DATA**: All data structured and unified in single view
+- **DOMINANT CHANNEL DETECTION**: Automatically identifies where users search most
+
+### 🎨 UX Improvements
+- **Eliminated channel selector** - No more choosing, searches everything
+- **Multi-channel banner** - Clear indicator of automatic analysis
+- **Structured results** - Organized by channel with tabs
+- **Volume comparison chart** - Visual bar chart comparing channels
+- **Executive summary** - Quick overview of all channels
+- **Cross-channel insights** - Intelligent recommendations
+
+### 📊 New Visualizations
+- **Volume by Channel** - Bar chart comparing interest across channels
+- **Channel metrics grid** - 4 metrics per channel (avg, monthly, quarterly, yearly)
+- **Timeline per channel** - Individual trend charts for each source
+- **Consolidated queries** - All queries from all channels combined
+- **Consolidated topics** - All topics from all channels combined
+
+### 🔧 Technical Details
+- Added `analyze_all_channels()` - Searches all channels in parallel
+- Added `consolidate_channel_data()` - Unifies data from multiple sources
+- Added `generate_cross_channel_insights()` - AI-powered insights
+- Added `render_multi_channel_results()` - Structured visualization
+- Optimized API calls with 0.5s delays (faster than before)
+- Robust error handling per channel (one fails, others continue)
+
+### 💡 Business Value
+- **No more decisions** - User doesn't choose, gets everything
+- **Complete picture** - See where brand is strongest
+- **Actionable insights** - Know which channels to prioritize
+- **Time saved** - One search = 5 channel analyses
+- **Better strategy** - Understand cross-channel performance
+
+### 📈 Data Structure
+```
+Results = {
+    country: {
+        channels: {
+            web: {data...},
+            images: {data...},
+            news: {data...},
+            youtube: {data...},
+            shopping: {data...}
+        },
+        consolidated: {
+            total_channels: 5,
+            channels_with_data: 5,
+            all_queries: [...],
+            all_topics: [...],
+            channel_volumes: {...},
+            dominant_channel: {...},
+            insights: [...]
+        }
+    }
+}
+```
+
+### 🎯 Insights Generated
+1. **Dominant Channel** - Which channel has most interest
+2. **Distribution** - Balanced vs concentrated
+3. **Growth Leaders** - Channels with highest growth
+4. **Opportunities** - Under-utilized channels with potential
+
+---
+
 ## [8.4.0] - 2024-12-01 - MULTI-SOURCE DATA SEPARATION 🎯✨
 
 ### ✨ Major Features
@@ -366,6 +437,7 @@ title="Jan - Interés: 47 | Promedio: 48 | Diferencia: -3.0% | 📉 Por debajo d
 
 | Version | Date | Type | Status |
 |---------|------|------|--------|
+| 8.5.0 | 2024-12-01 | Major Feature | ✅ READY |
 | 8.4.0 | 2024-12-01 | Major Feature | ✅ READY |
 | 8.3.0 | 2024-12-01 | Feature | ✅ READY |
 | 8.2.4 | 2024-12-01 | Bug Fix | ✅ READY |
@@ -411,5 +483,5 @@ Version 1.0-3.0 are deprecated. Use 8.2+ for production.
 
 **Maintained by**: PCComponentes Competitive Intelligence Team  
 **Last Updated**: 2024-12-01  
-**Current Version**: 8.4.0  
+**Current Version**: 8.5.0  
 **Status**: ✅ Production Ready
